@@ -12,10 +12,18 @@ from hypothesis.extra.numpy import arrays
 
 from quantproof.analyzers.causal import perturb_future
 from quantproof.data import generate_prices, validate_data
+from quantproof.errors import QuantProofInputError
 from quantproof.experiments import hash_dataframe
 from quantproof.statistics import sharpe_ratio
 from quantproof.statistics.probabilistic_sharpe import psr_from_moments
-from quantproof.validation import CPCV, PurgedKFold, WalkForward, label_intervals, purge
+from quantproof.validation import (
+    CPCV,
+    PurgedKFold,
+    WalkForward,
+    apply_embargo,
+    label_intervals,
+    purge,
+)
 
 finite = st.floats(min_value=-0.2, max_value=0.2, allow_nan=False, allow_infinity=False)
 returns_arrays = arrays(np.float64, st.integers(3, 200), elements=finite)
@@ -57,7 +65,18 @@ def test_purged_kfold_invariants(n, k, horizon, embargo):
         return
     s, e = label_intervals(n, label_horizon=horizon)
     seen = []
-    for train, test in PurgedKFold(k, label_horizon=horizon, embargo=embargo).split(np.zeros(n)):
+    try:
+        splits = list(PurgedKFold(k, label_horizon=horizon, embargo=embargo).split(np.zeros(n)))
+    except QuantProofInputError as exc:
+        # Only legitimate when some fold really has no training data left.
+        assert "removed every training observation" in str(exc)  # noqa: PT017 - conditional expectation
+        empties = []
+        for test in np.array_split(np.arange(n), k):
+            train = purge(np.setdiff1d(np.arange(n), test), test, s, e)
+            empties.append(apply_embargo(train, test, n, embargo, label_start=s, label_end=e).size)
+        assert 0 in empties
+        return
+    for train, test in splits:
         assert np.intersect1d(train, test).size == 0
         assert purge(train, test, s, e).size == train.size  # nothing left to purge
         seen.append(test)
