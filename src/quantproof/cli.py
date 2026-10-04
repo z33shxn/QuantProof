@@ -462,7 +462,12 @@ def statistics(
             r, benchmark_sharpe=benchmark_sharpe, periods_per_year=periods, risk_free_rate=risk_free
         )
         dsr = deflated_sharpe_ratio(
-            r, n_trials=trials, periods_per_year=periods, risk_free_rate=risk_free
+            r,
+            n_trials=trials,
+            periods_per_year=periods,
+            risk_free_rate=risk_free,
+            expected_max_method="exact",
+            trials_source="--trials",
         )
         boot = bootstrap_sharpe(r, periods_per_year=periods, n_boot=n_boot, seed=seed)
         mintrl = minimum_track_record_length(
@@ -496,7 +501,7 @@ def statistics(
     )
     typer.echo(
         f"Deflated Sharpe Ratio:        {format_number(dsr.dsr, 4)}  (trials {trials}, "
-        f"E[max SR] {format_number(dsr.to_dict()['expected_max_sharpe_annualized'], 3)})"
+        f"E[max SR] {format_number(dsr.to_dict()['expected_max_sharpe_annualized'], 3)}, exact)"
     )
     typer.echo(
         f"Bootstrap {boot.confidence:.0%} CI:             [{format_number(boot.ci_lower, 3)}, {format_number(boot.ci_upper, 3)}]"

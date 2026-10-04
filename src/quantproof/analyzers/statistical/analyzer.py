@@ -29,7 +29,10 @@ from quantproof.config import StatisticsConfig
 from quantproof.results import Category, Finding
 from quantproof.severity import Confidence, Severity
 from quantproof.statistics.bootstrap import bootstrap_sharpe
-from quantproof.statistics.deflated_sharpe import deflated_sharpe_ratio
+from quantproof.statistics.deflated_sharpe import (
+    deflated_sharpe_ratio,
+    effective_number_of_trials,
+)
 from quantproof.statistics.probabilistic_sharpe import (
     minimum_track_record_length,
     probabilistic_sharpe_ratio,
@@ -68,6 +71,8 @@ def analyze_statistics(
     trial_sharpes: np.ndarray | None = None,
     seed: int = 42,
     scenario_sharpes: dict[str, float] | None = None,
+    trials_source: str = "caller",
+    trial_returns: pd.DataFrame | None = None,
 ) -> tuple[dict[str, Any], list[Finding]]:
     """Compute Sharpe, PSR, DSR, bootstrap CI, MinTRL and related findings."""
     r = returns.dropna()
@@ -80,9 +85,17 @@ def analyze_statistics(
         periods_per_year=ppy,
         risk_free_rate=cfg.risk_free_rate,
     )
+    effective = (
+        effective_number_of_trials(trial_returns.to_numpy(dtype=float))
+        if trial_returns is not None and trial_returns.shape[1] >= 2
+        else None
+    )
     dsr = deflated_sharpe_ratio(
         r,
         n_trials=max(1, n_trials),
+        expected_max_method="exact",
+        trials_source=trials_source,
+        effective_trials=effective,
         trial_sharpes=trial_sharpes
         if trial_sharpes is not None and len(trial_sharpes) >= 2
         else None,
@@ -96,6 +109,19 @@ def analyze_statistics(
         "psr": psr.to_dict(),
         "dsr": dsr.to_dict(),
         "trials_declared": trials_declared,
+        "trials": {
+            "declared": n_trials if trials_declared else None,
+            "used_for_dsr": dsr.n_trials,
+            "source": trials_source,
+            "effective_estimate": effective,
+            "effective_method": "Li & Ji (2005) eigenvalue count of trial-return correlations"
+            if effective is not None
+            else None,
+            "meaning": (
+                "Number of strategy variants whose results could have been selected, including "
+                "discarded ones. QuantProof cannot observe undeclared trials."
+            ),
+        },
     }
     if len(r) >= 10:
         boot = bootstrap_sharpe(
@@ -173,10 +199,16 @@ def analyze_statistics(
             title="Deflated Sharpe Ratio",
             message=(
                 f"DSR = {dsr.dsr:.3f} with {dsr.n_trials} trial(s): the expected maximum Sharpe "
-                f"of {dsr.n_trials} skill-less trials is "
-                f"{dsr.expected_max_sharpe_per_period * math.sqrt(ppy):.2f} (annualized) vs "
-                f"observed {dsr.sharpe_per_period * math.sqrt(ppy):.2f}. Variance source: "
+                f"of {dsr.n_trials} skill-less trials ({trials_source}) is "
+                f"{dsr.expected_max_sharpe_per_period * math.sqrt(ppy):.2f} (annualized, "
+                f"{dsr.expected_max_method}) vs observed "
+                f"{dsr.sharpe_per_period * math.sqrt(ppy):.2f}. Variance source: "
                 f"{dsr.variance_source}."
+                + (
+                    f" Estimated effective number of independent trials: {effective:.1f}."
+                    if effective is not None
+                    else ""
+                )
             ),
             evidence=dsr.to_dict(),
             why_it_matters=(
@@ -239,7 +271,7 @@ def analyze_statistics(
             Finding(
                 id="QP-STAT-005",
                 category=Category.STATISTICS,
-                severity=Severity.INFO,
+                severity=Severity.WARN if cfg.require_declared_trials else Severity.INFO,
                 title="Number of trials not declared",
                 message=(
                     "No PARAM_GRID and no statistics.trials were given, so the DSR assumes a single "
