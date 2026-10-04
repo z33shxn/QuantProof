@@ -1,0 +1,31 @@
+name: False positive / false negative
+description: A static or runtime rule fired on valid code, or missed an obvious problem
+labels: [detector-accuracy]
+body:
+  - type: input
+    id: rule
+    attributes:
+      label: Rule id
+      placeholder: QP001
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options: [False positive (valid code flagged), False negative (problem missed)]
+    validations:
+      required: true
+  - type: textarea
+    id: code
+    attributes:
+      label: Minimal code
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why the current result is wrong
+    validations:
+      required: true

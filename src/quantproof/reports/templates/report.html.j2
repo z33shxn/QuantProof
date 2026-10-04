@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QuantProof Audit</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #6f6e69;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
+  --good: #0ca30c; --good-text: #006300; --warning: #fab219; --critical: #d03b3b; --info: #898781;
+  --div-mid: #f0efec;
+  --div-pos-1: #cde2fb; --div-pos-2: #9ec5f4; --div-pos-3: #6da7ec; --div-pos-4: #3987e5; --div-pos-5: #256abf;
+  --div-neg-1: #fbdcdb; --div-neg-2: #f5b5b4; --div-neg-3: #ee8a89; --div-neg-4: #e34948; --div-neg-5: #b52e2e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #a3a29b;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --good-text: #0ca30c;
+    --div-mid: #383835;
+    --div-pos-1: #184f95; --div-pos-2: #1c5cab; --div-pos-3: #256abf; --div-pos-4: #3987e5; --div-pos-5: #6da7ec;
+    --div-neg-1: #6b2121; --div-neg-2: #8f2a2a; --div-neg-3: #b52e2e; --div-neg-4: #e34948; --div-neg-5: #ee8a89;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #a3a29b;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --good-text: #0ca30c;
+  --div-mid: #383835;
+  --div-pos-1: #184f95; --div-pos-2: #1c5cab; --div-pos-3: #256abf; --div-pos-4: #3987e5; --div-pos-5: #6da7ec;
+  --div-neg-1: #6b2121; --div-neg-2: #8f2a2a; --div-neg-3: #b52e2e; --div-neg-4: #e34948; --div-neg-5: #ee8a89;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink);
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+h2 { font-size: 19px; margin: 40px 0 10px; padding-top: 12px; border-top: 1px solid var(--border); }
+h3 { font-size: 15px; margin: 22px 0 8px; color: var(--ink-2); }
+p, li { color: var(--ink-2); }
+.meta { color: var(--muted); font-size: 13px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; }
+.verdict { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+.verdict .badge { font-size: 22px; font-weight: 700; padding: 6px 14px; border-radius: 6px; border: 2px solid currentColor; }
+.st-FAIL { color: var(--critical); } .st-WARN { color: #a86f00; } .st-PASS { color: var(--good-text); } .st-INFO { color: var(--muted); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .st-WARN { color: var(--warning); } }
+:root[data-theme="dark"] .st-WARN { color: var(--warning); }
+.counts { display: flex; gap: 22px; flex-wrap: wrap; }
+.counts div { min-width: 90px; } .counts b { display: block; font-size: 22px; color: var(--ink); }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 6px 0 14px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.scroll { overflow-x: auto; }
+code { overflow-wrap: anywhere; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+pre { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px; overflow-x: auto; }
+.finding { border-left: 3px solid var(--axis); padding: 8px 12px; margin: 10px 0; background: var(--surface); border-radius: 0 6px 6px 0; }
+.finding.FAIL { border-left-color: var(--critical); } .finding.WARN { border-left-color: var(--warning); }
+.finding.PASS { border-left-color: var(--good); }
+.finding .head { font-weight: 600; color: var(--ink); }
+.finding .loc { color: var(--muted); font-size: 12.5px; }
+.finding p { margin: 4px 0; font-size: 14px; }
+.finding .why, .finding .fix { font-size: 13px; }
+details summary { cursor: pointer; color: var(--ink-2); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.qp-chart { width: 100%; height: auto; display: block; }
+.qp-chart .grid { stroke: var(--grid); stroke-width: 1; }
+.qp-chart .baseline { stroke: var(--axis); stroke-width: 1; }
+.qp-chart .refline { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 3 3; }
+.qp-chart .tick, .qp-chart .axis-title { fill: var(--muted); font-size: 11px; }
+.qp-chart .series { fill: none; stroke-width: 2; stroke-linejoin: round; }
+.qp-chart .s1 { stroke: var(--s1); } .qp-chart .s2 { stroke: var(--s2); } .qp-chart .s3 { stroke: var(--s3); }
+.qp-chart rect.bar { fill: var(--s1); stroke: var(--surface); stroke-width: 2; }
+.qp-chart rect.bar.hl { fill: var(--s2); }
+.qp-chart .direct-label { fill: var(--ink-2); font-size: 11px; }
+.qp-chart .crosshair { stroke: var(--ink-2); stroke-width: 1; }
+.qp-chart .cell { stroke: var(--surface); stroke-width: 2; } .qp-chart .cell.empty { fill: var(--grid); }
+.qp-chart .cell-label { fill: var(--ink); font-size: 11px; font-variant-numeric: tabular-nums; }
+.qp-chart .cell-label.strong { fill: #ffffff; }
+.legend { display: flex; gap: 16px; font-size: 12.5px; color: var(--ink-2); flex-wrap: wrap; margin: 4px 0; }
+.legend i { display: inline-block; width: 16px; height: 2px; vertical-align: middle; margin-right: 6px; }
+.tooltip { position: fixed; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 9px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.12); display: none; z-index: 9; }
+.tooltip b { color: var(--ink); } .tooltip div { color: var(--ink-2); white-space: nowrap; }
+.toolbar { float: right; }
+.toolbar button { font: inherit; font-size: 12px; background: var(--surface); color: var(--ink-2);
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+@media (max-width: 640px) { table { display: block; overflow-x: auto; } .counts div { min-width: 70px; } }
+@media print { .toolbar, .tooltip { display: none !important; } h2 { break-after: avoid; } }
+</style>
+</head>
+<body>
+<main>
+<div class="toolbar"><button type="button" id="theme-toggle">Toggle theme</button></div>
+<h1>QuantProof research audit</h1>
+<div class="meta">Strategy <code>{{ ov.strategy or "n/a" }}</code>{% if ov.evaluation_start %} · {{ ov.evaluation_start[:10] }} → {{ ov.evaluation_end[:10] }}{% endif %} · {{ ov.n_observations }} observations · QuantProof {{ version }} · generated {{ created_at }}</div>
+
+<h2>1. Overall verdict</h2>
+<div class="card verdict">
+  <span class="badge st-{{ status }}">{{ symbols[status] }} {{ status }}</span>
+  <div class="counts">
+    <div><b>{{ summary.failures }}</b>critical failures</div>
+    <div><b>{{ summary.warnings }}</b>warnings</div>
+    <div><b>{{ summary.passed }}</b>passed checks</div>
+    <div><b>{{ summary.info }}</b>informational</div>
+  </div>
+</div>
+<h3>Why this verdict</h3>
+<ul>{% for r in summary.verdict_reasons %}<li>{{ r }}</li>{% endfor %}</ul>
+<details><summary>Verdict rules</summary><ol>{% for r in summary.verdict_rules %}<li>{{ r }}</li>{% endfor %}</ol></details>
+
+<h2>2. Executive summary</h2>
+{% if ov.headline %}
+<table>
+<thead><tr><th>Scenario</th><th class="num">Sharpe</th><th class="num">CAGR</th><th class="num">Max drawdown</th><th class="num">Volatility</th></tr></thead>
+<tbody>
+{% for key in ["headline", "realistic"] %}{% if ov[key] %}{% set b = ov[key] %}
+<tr><td>{{ b.label }}</td><td class="num">{{ b.sharpe|num(2) }}</td><td class="num">{{ b.cagr|pct }}</td><td class="num">{{ b.max_drawdown|pctplain(1) }}</td><td class="num">{{ b.volatility|pctplain(1) }}</td></tr>
+{% endif %}{% endfor %}
+</tbody></table>
+{% endif %}
+{% if equity_chart %}
+<div class="legend">{% for s in equity_series %}<span><i style="background:var(--s{{ s.slot }})"></i>{{ s.name }}</span>{% endfor %}</div>
+<div class="card">{{ equity_chart|safe }}</div>
+<p class="meta">Growth of 1 unit. Naive = filled at the close that generated the signal, no costs. Audit = auditor's lag and cost assumptions.</p>
+{% endif %}
+{% if issues %}
+<h3>Issues requiring attention</h3>
+<table><thead><tr><th>Status</th><th>Rule</th><th>Finding</th></tr></thead><tbody>
+{% for f in issues %}<tr><td class="st-{{ f.severity.value }}">{{ symbols[f.severity.value] }} {{ f.severity.value }}</td><td><code>{{ f.id }}</code></td><td>{{ f.title }}</td></tr>{% endfor %}
+</tbody></table>
+{% endif %}
+
+<h2>3. Data validation and static code findings</h2>
+{% macro finding_block(f) %}
+<div class="finding {{ f.severity.value }}">
+  <div class="head"><span class="st-{{ f.severity.value }}">{{ symbols[f.severity.value] }} {{ f.severity.value }}</span> · <code>{{ f.id }}</code> · {{ f.title }}{% if f.confidence %} <span class="meta">(confidence: {{ f.confidence.value }})</span>{% endif %}</div>
+  {% if f.location and f.location.describe() %}<div class="loc">{{ f.location.describe() }}{% if f.location.snippet %} — <code>{{ f.location.snippet }}</code>{% endif %}</div>{% endif %}
+  <p>{{ f.message }}</p>
+  {% if f.is_issue and f.why_it_matters %}<p class="why"><b>Why it matters.</b> {{ f.why_it_matters }}</p>{% endif %}
+  {% if f.is_issue and f.recommendation %}<p class="fix"><b>Recommendation.</b> {{ f.recommendation }}</p>{% endif %}
+</div>
+{% endmacro %}
+{% macro finding_list(items) %}
+{% for f in items if f.severity.value != "PASS" %}{{ finding_block(f) }}{% endfor %}
+{% set passes = items|selectattr("severity.value", "equalto", "PASS")|list %}
+{% if passes %}<details><summary>{{ passes|length }} passed check(s)</summary><table><tbody>
+{% for f in passes %}<tr><td class="st-PASS">✓</td><td><code>{{ f.id }}</code></td><td>{{ f.title }}</td></tr>{% endfor %}
+</tbody></table></details>{% endif %}
+{% endmacro %}
+<h3>Data</h3>
+{% if sections.data %}<p class="meta">{{ sections.data.rows_used }} rows used of {{ sections.data.rows_raw }}; {{ sections.data.start[:10] }} → {{ sections.data.end[:10] }}.</p>{% endif %}
+{{ finding_list(by_cat.data) }}
+<h3>Static analysis</h3>
+{{ finding_list(by_cat.static) }}
+
+<h2>4. Causality test results</h2>
+{% set c = sections.causality %}
+{% if c %}
+<p>The strategy was re-run with data <em>after</em> each test timestamp perturbed ({{ c.config.schemes|join(", ") }}). Decisions at or before the timestamp must not change.
+{{ c.n_trials }} trials: <b>{{ c.n_pass }}</b> unchanged, <b>{{ c.n_fail }}</b> changed, {{ c.n_error }} errors. Deterministic: {{ c.deterministic }}. Control sensitivity: {{ c.control_sensitive }}.</p>
+<div class="scroll"><table><thead><tr><th>Decision time</th><th>Scheme</th><th>Result</th><th class="num">Changed decisions</th><th>First changed</th><th class="num">Max |Δ|</th></tr></thead><tbody>
+{% for t in c.trials %}<tr><td>{{ t.timestamp[:19] }}</td><td>{{ t.scheme }}</td><td class="st-{{ 'FAIL' if t.status == 'fail' else ('PASS' if t.status == 'pass' else 'INFO') }}">{{ t.status }}</td><td class="num">{{ t.n_changed }}</td><td>{{ (t.first_changed or "")[:19] }}</td><td class="num">{{ t.max_abs_diff|num(4) }}</td></tr>{% endfor %}
+</tbody></table></div>
+{% endif %}
+{{ finding_list(by_cat.causality + by_cat.leakage) }}
+
+<h2>5. Statistical diagnostics</h2>
+{% set st = sections.statistics %}
+{% if st %}
+<table><thead><tr><th>Statistic</th><th class="num">Value</th><th>Inputs and assumptions</th></tr></thead><tbody>
+<tr><td>Sharpe ratio (annualized, net)</td><td class="num">{{ st.sharpe.sharpe_annualized|num(2) }}</td><td>n={{ st.sharpe.n_observations }}, periods/year={{ st.sharpe.periods_per_year|num(0) }}, rf={{ st.sharpe.risk_free_rate }}, s.e.={{ st.sharpe.standard_error_annualized|num(2) }}</td></tr>
+<tr><td>Probabilistic Sharpe Ratio</td><td class="num">{{ st.psr.psr|num(3) }}</td><td>benchmark SR={{ st.psr.benchmark_sharpe_annualized|num(2) }}, skew={{ st.psr.skewness|num(2) }}, kurtosis={{ st.psr.kurtosis|num(2) }}, z={{ st.psr.z_score|num(2) }}</td></tr>
+<tr><td>Deflated Sharpe Ratio</td><td class="num">{{ st.dsr.dsr|num(3) }}</td><td>trials={{ st.dsr.n_trials }}, E[max SR]={{ st.dsr.expected_max_sharpe_annualized|num(2) }} (annual), V[SR]={{ st.dsr.sharpe_variance|num(6) }} from {{ st.dsr.variance_source }}</td></tr>
+<tr><td>Minimum track record length</td><td class="num">{{ st.min_track_record_length|num(0) }}</td><td>observations needed for PSR ≥ confidence</td></tr>
+{% if st.bootstrap_sharpe %}<tr><td>Bootstrap Sharpe {{ (st.bootstrap_sharpe.confidence * 100)|round|int }}% CI</td><td class="num">[{{ st.bootstrap_sharpe.ci_lower|num(2) }}, {{ st.bootstrap_sharpe.ci_upper|num(2) }}]</td><td>{{ st.bootstrap_sharpe.method }} bootstrap, block length {{ st.bootstrap_sharpe.block_length|num(1) }}, B={{ st.bootstrap_sharpe.n_boot }}, seed={{ st.bootstrap_sharpe.seed }}</td></tr>{% endif %}
+<tr><td>CAGR / max drawdown</td><td class="num">{{ st.cagr|pct }} / {{ st.max_drawdown|pctplain(1) }}</td><td>net of audit costs</td></tr>
+<tr><td>Lo (2002) autocorrelation-adjusted Sharpe</td><td class="num">{{ st.lo_adjusted_sharpe|num(2) }}</td><td>first 10 autocorrelations</td></tr>
+</tbody></table>
+{% endif %}
+{{ finding_list(by_cat.statistics) }}
+
+<h2>6. Validation methodology</h2>
+{% set v = sections.validation %}
+{% if v %}
+{% if v.n_configurations %}<p>{{ v.n_configurations }} parameter configurations evaluated on {{ v.n_observations }} observations (realistic net returns).</p>{% endif %}
+{% if v.walk_forward and v.walk_forward.folds %}
+<h3>Walk-forward ({{ "expanding" if v.walk_forward.expanding else "rolling" }} windows)</h3>
+<pre>{{ v.walk_forward.diagram }}</pre>
+<div class="scroll"><table><thead><tr><th>Fold</th>{% if v.walk_forward.folds[0].train %}<th>Train</th>{% endif %}<th>Test</th>{% if v.walk_forward.folds[0].selected %}<th>Selected</th><th class="num">IS Sharpe</th>{% endif %}<th class="num">OOS Sharpe</th></tr></thead><tbody>
+{% for f in v.walk_forward.folds %}<tr><td>{{ f.fold }}</td>{% if f.train %}<td>{{ f.train|join(" → ") }}</td>{% endif %}<td>{{ f.test|join(" → ") }}</td>{% if f.selected %}<td><code>{{ f.selected }}</code></td><td class="num">{{ f.is_sharpe|num(2) }}</td>{% endif %}<td class="num">{{ f.oos_sharpe|num(2) }}</td></tr>{% endfor %}
+</tbody></table></div>
+{% if v.walk_forward.oos_sharpe is defined %}<p>Concatenated out-of-sample Sharpe: <b>{{ v.walk_forward.oos_sharpe|num(2) }}</b> vs mean in-sample {{ v.walk_forward.is_sharpe_mean|num(2) }}.</p>{% endif %}
+{% endif %}
+{% if v.pbo and v.pbo.pbo is defined %}
+<h3>Probability of Backtest Overfitting (CSCV)</h3>
+<p>PBO = <b>{{ v.pbo.pbo|num(2) }}</b> — S={{ v.pbo.n_partitions }} partitions, {{ v.pbo.n_combinations }} of {{ v.pbo.n_combinations_total }} combinations, N={{ v.pbo.n_strategies }}. Degradation slope (OOS on IS Sharpe) {{ v.pbo.degradation_slope|num(2) }}; probability of OOS loss {{ v.pbo.prob_oos_loss|num(2) }}. {{ v.pbo.interpretation }}</p>
+{% if pbo_chart %}<div class="card">{{ pbo_chart|safe }}</div><p class="meta">Distribution of logits λ of the in-sample winner's out-of-sample rank; mass at λ ≤ 0 is the PBO.</p>{% endif %}
+{% endif %}
+{% if v.cpcv and v.cpcv.n_paths is defined %}
+<h3>Combinatorial purged cross-validation</h3>
+<p>N={{ v.cpcv.n_groups }} groups, k={{ v.cpcv.n_test_groups }} test groups, embargo {{ v.cpcv.embargo }}: {{ v.cpcv.n_splits }} splits → {{ v.cpcv.n_paths }} paths. Path Sharpe ratios: {% for s in v.cpcv.path_sharpes %}{{ s|num(2) }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+{% endif %}
+{% if v.reality_check and v.reality_check.p_value is defined %}
+<h3>Data-snooping test</h3>
+<p>White's Reality Check p = {{ v.reality_check.p_value|num(3) }}; Hansen SPA<sub>c</sub> p = {{ v.reality_check.spa_p_value|num(3) }} ({{ v.reality_check.n_strategies }} configurations, stationary bootstrap B={{ v.reality_check.n_bootstrap }}, mean block {{ v.reality_check.block_length|num(1) }}).</p>
+{% endif %}
+{% if v.note %}<p class="meta">{{ v.note }}</p>{% endif %}
+{% endif %}
+{{ finding_list(by_cat.validation) }}
+
+<h2>7. Execution assumptions</h2>
+{% set ex = sections.execution %}
+{% if ex.scenarios %}
+<table><thead><tr><th>Scenario</th><th>Assumptions</th><th class="num">Sharpe</th><th class="num">CAGR</th><th class="num">Max DD</th></tr></thead><tbody>
+{% for name, sc in ex.scenarios.items() %}<tr><td>{{ name }}</td><td><code>{{ sc.assumptions|tojson }}</code></td><td class="num">{{ sc.metrics.sharpe|num(2) }}</td><td class="num">{{ sc.metrics.cagr|pct }}</td><td class="num">{{ sc.metrics.max_drawdown|pctplain(1) }}</td></tr>{% endfor %}
+</tbody></table>
+<h3>Execution-lag sensitivity (gross)</h3>
+<div class="grid2"><div class="card">{{ lag_chart|safe }}</div>
+<table><thead><tr><th>Lag</th><th class="num">Sharpe</th><th class="num">CAGR</th></tr></thead><tbody>
+{% for r in ex.lag_sensitivity %}<tr><td>{{ r.signal_lag }}</td><td class="num">{{ r.sharpe|num(2) }}</td><td class="num">{{ r.cagr|pct }}</td></tr>{% endfor %}
+</tbody></table></div>
+<p>Edge retained after a one-bar lag (gross): {{ ex.edge_retained_after_one_bar_lag|pctplain }}; headline edge retained under audit assumptions: {{ ex.headline_retained_under_audit|pctplain }}. Turnover: {{ ex.turnover.annualized|num(1) }}× equity per year; average holding period ≈ {{ ex.turnover.holding_period_bars|num(1) }} bars.</p>
+{% endif %}
+{% if ex.timing %}<p>Trade timing: {{ ex.timing.n_trades }} trades, {{ ex.timing.n_before_signal }} executed before the signal, {{ ex.timing.n_instantaneous }} with zero latency (median latency {{ ex.timing.median_latency }}).</p>{% endif %}
+{{ finding_list(by_cat.execution) }}
+
+<h2>8. Cost sensitivity</h2>
+{% if ex.cost_sensitivity %}
+<div class="grid2"><div class="card">{{ cost_chart|safe }}</div>
+<table><thead><tr><th class="num">One-way cost (bps)</th><th class="num">Net Sharpe</th><th class="num">CAGR</th></tr></thead><tbody>
+{% for r in ex.cost_sensitivity %}<tr><td class="num">{{ r.one_way_cost_bps|num(1) }}</td><td class="num">{{ r.sharpe|num(2) }}</td><td class="num">{{ r.cagr|pct }}</td></tr>{% endfor %}
+</tbody></table></div>
+<p>Break-even one-way cost: <b>{{ ex.break_even_one_way_cost_bps|num(1) }} bps</b>. Audit cost components (sum over the window, fraction of equity): {% for k, val in ex.cost_breakdown_total.items() %}{{ k }} {{ val|num(4) }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+<ul>{% for l in ex.limitations %}<li>{{ l }}</li>{% endfor %}</ul>
+{% else %}<p class="meta">Not available for this audit mode.</p>{% endif %}
+
+<h2>9. Regime analysis</h2>
+{% set rg = sections.regimes %}
+{% if rg and rg.tables %}
+{% for name, table in rg.tables.items() %}
+<h3>{{ name|capitalize }} regimes</h3>
+<p class="meta">{{ rg.definitions[name] }}</p>
+<table><thead><tr><th>Regime</th><th class="num">Obs</th><th class="num">Time share</th><th class="num">Sharpe</th><th class="num">Ann. return</th><th class="num">Hit rate</th><th class="num">P&amp;L share</th></tr></thead><tbody>
+{% for r in table %}<tr><td>{{ r.regime }}</td><td class="num">{{ r.n_observations }}</td><td class="num">{{ r.share_of_time|pctplain }}</td><td class="num">{% if r.sharpe is none %}<span class="meta">insufficient</span>{% else %}{{ r.sharpe|num(2) }}{% endif %}</td><td class="num">{{ r.mean_return_annualized|pct }}</td><td class="num">{{ r.hit_rate|pctplain }}</td><td class="num">{{ r.share_of_pnl|pctplain }}</td></tr>{% endfor %}
+</tbody></table>
+{% endfor %}
+{% endif %}
+{{ finding_list(by_cat.regime) }}
+
+<h2>10. Parameter sensitivity</h2>
+{% set sn = sections.sensitivity %}
+{% if sn and sn.surface %}
+<p>Best configuration {{ sn.surface.best|tojson }} with Sharpe {{ sn.surface.best_value|num(2) }}; median of {{ sn.surface.n_neighbours }} neighbours {{ sn.surface.neighbour_median|num(2) }} (plateau ratio {{ sn.surface.plateau_ratio|num(2) }}, classification <b>{{ sn.surface.classification }}</b>).
+In-sample vs out-of-sample ({{ sn.is_oos.split }}): Spearman ρ = {{ sn.is_oos.spearman|num(2) }}.</p>
+{% if heat_chart %}<div class="card">{{ heat_chart|safe }}</div><p class="meta">Full-sample net Sharpe; blue positive, red negative, gray ≈ 0; empty cells were not evaluated (grid sub-sampled). ★ marks the maximum. Other parameters fixed at their best values.</p>{% endif %}
+{% else %}<p class="meta">No parameter grid supplied.</p>{% endif %}
+{{ finding_list(by_cat.sensitivity) }}
+
+<h2>11. Reproducibility manifest</h2>
+<p>Content hash <code>{{ manifest.content_hash }}</code> — identical for runs with the same code, data, configuration, environment and seed.</p>
+<pre>{{ manifest_yaml }}</pre>
+
+<h2>12. Methodology and limitations</h2>
+<ul>{% for l in limitations %}<li>{{ l }}</li>{% endfor %}</ul>
+<p>Methods: AST static analysis (QP001–QP015); future-perturbation causality test; walk-forward, purged K-fold, CPCV (López de Prado, 2018); Probabilistic and Deflated Sharpe Ratios (Bailey &amp; López de Prado, 2012, 2014); PBO via CSCV (Bailey et al., 2017); White (2000) Reality Check and Hansen (2005) SPA; stationary bootstrap (Politis &amp; Romano, 1994) with automatic block length (Politis &amp; White, 2004).</p>
+
+<h2>13. Machine-readable results</h2>
+<p>The complete result is embedded below as JSON. <button type="button" id="download-json">Download JSON</button></p>
+<details><summary>Show JSON</summary><pre id="raw-json"></pre></details>
+<script type="application/json" id="qp-result">{{ result_json|safe }}</script>
+</main>
+<div class="tooltip" id="qp-tip"></div>
+<script>
+(function () {
+  var root = document.documentElement;
+  document.getElementById("theme-toggle").addEventListener("click", function () {
+    var dark = root.getAttribute("data-theme") === "dark" ||
+      (!root.getAttribute("data-theme") && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    root.setAttribute("data-theme", dark ? "light" : "dark");
+  });
+  var raw = document.getElementById("qp-result").textContent;
+  document.getElementById("raw-json").textContent = JSON.stringify(JSON.parse(raw), null, 2);
+  document.getElementById("download-json").addEventListener("click", function () {
+    var blob = new Blob([raw], {type: "application/json"});
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = "quantproof-result.json"; a.click();
+  });
+  var tip = document.getElementById("qp-tip");
+  document.querySelectorAll("script.qp-line-data").forEach(function (node) {
+    var data = JSON.parse(node.textContent);
+    var svg = document.getElementById(node.getAttribute("data-for"));
+    if (!svg) return;
+    var hit = svg.querySelector("rect.hit"), cross = svg.querySelector("line.crosshair");
+    var n = data.x.length;
+    function show(evt) {
+      var box = svg.getBoundingClientRect();
+      var scale = data.geom.W / box.width;
+      var x = (evt.clientX - box.left) * scale;
+      var i = Math.round((x - data.geom.left) / data.geom.width * (n - 1));
+      i = Math.max(0, Math.min(n - 1, i));
+      var px = data.geom.left + data.geom.width * i / Math.max(n - 1, 1);
+      cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.setAttribute("visibility", "visible");
+      tip.textContent = "";
+      var head = document.createElement("b"); head.textContent = String(data.x[i]).slice(0, 10); tip.appendChild(head);
+      data.series.forEach(function (s) {
+        var row = document.createElement("div");
+        var v = s.y[i];
+        row.textContent = (v === null ? "n/a" : v.toFixed(3)) + "  " + s.name;
+        row.style.borderLeft = "10px solid var(--s" + s.slot + ")"; row.style.paddingLeft = "6px";
+        tip.appendChild(row);
+      });
+      tip.style.display = "block";
+      tip.style.left = Math.min(evt.clientX + 14, window.innerWidth - 220) + "px";
+      tip.style.top = (evt.clientY + 14) + "px";
+    }
+    hit.addEventListener("pointermove", show);
+    hit.addEventListener("pointerleave", function () { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); });
+  });
+})();
+</script>
+</body>
+</html>

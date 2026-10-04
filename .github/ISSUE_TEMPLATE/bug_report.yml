@@ -1,0 +1,28 @@
+name: Bug report
+description: A check is wrong, crashes, or produces a misleading result
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include the rule id(s) involved (e.g. QP007, QP-VAL-002) and the command or code you ran.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: A small strategy snippet and synthetic data (e.g. `quantproof generate-data`) are ideal. Do not paste proprietary code or data.
+      render: python
+  - type: input
+    id: version
+    attributes:
+      label: Versions
+      description: Output of `quantproof version` and `python --version`

@@ -1,0 +1,26 @@
+name: Lint
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install locked dependencies
+        run: uv sync --frozen --extra dev --python 3.12
+      - name: Ruff (lint)
+        run: uv run --frozen ruff check .
+      - name: Ruff (format)
+        run: uv run --frozen ruff format --check .
+      - name: Mypy
+        run: uv run --frozen mypy
