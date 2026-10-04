@@ -258,7 +258,7 @@ def audit_cmd(
     cfg = _load_config(config, profile, seed, quick=quick)
     try:
         if strategy is not None:
-            if data is None:
+            if data is None and Path(strategy).exists():
                 typer.echo("Note: no --data given; only static analysis will run.", err=True)
             result = audit(
                 strategy=strategy,
@@ -307,7 +307,10 @@ def report(
     try:
         result = load_result(result_json)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
-        _error(f"Cannot read {result_json}: {exc}")
+        _error(
+            f"Cannot read {result_json}: it is not a QuantProof JSON report "
+            f"({type(exc).__name__}: {exc})."
+        )
         return
     text = render(result, fmt.value)
     if output:

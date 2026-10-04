@@ -300,3 +300,18 @@ def test_html_renders_in_every_audit_mode(tmp_path, prices):
         assert "13. Machine-readable results" in html
         assert render_markdown(res).startswith("# QuantProof audit")
         assert "OVERALL" in render_text(res)
+
+
+def test_cli_unreadable_files_are_input_errors(tmp_path):
+    bad = tmp_path / "bad.csv"
+    bad.write_text('a,b\n1,2,3,4\n"unterminated\n')
+    empty = tmp_path / "empty.csv"
+    empty.write_text("")
+    junk = tmp_path / "junk.parquet"
+    junk.write_text("not parquet")
+    for path in (bad, empty, junk):
+        r = runner.invoke(app, ["validate", str(path)])
+        assert r.exit_code == 3, (path, r.stderr)
+        assert "Could not read" in r.stderr and "Traceback" not in r.stderr
+    r = runner.invoke(app, ["report", str(bad)])
+    assert r.exit_code == 3 and "not a QuantProof JSON report" in r.stderr
