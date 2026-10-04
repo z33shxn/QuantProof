@@ -21,52 +21,81 @@ far better than anything achievable in real time.
 - comments, for inline suppression (`# quantproof: ignore[QP002]`);
 - a **taint analysis** for future information.
 
-**Taint analysis.** Statements are processed in order within each scope. Sources are
-`shift`/`diff`/`pct_change` with a negative period (QP001), `np.roll` with a negative
-shift, and `x[i + k]` indexing with a loop variable (QP003). Taint propagates through
-assignments to names, to string column keys (`df["fwd"] = ...`), to attributes, and
-through `DataFrame.assign`; re-assigning an untainted value clears it. Sinks are:
+## Analysis levels
 
-- **signal** — a value returned from `generate_signals` (or another strategy-like
-  function) or assigned to a name/column matching signal/position/weight;
-- **feature** — the first argument of `fit`, `fit_transform`, `predict`, `transform`, …;
-- **label** — the target argument of `fit`, or a name like `y`, `target`, `label`.
+Every static rule works at one of three documented levels. Higher levels find more and
+are more fragile; findings always say which rule fired and with what *analysis
+confidence* (how sure the analyzer is that the matched pattern means what the rule says
+— not a statistical probability).
 
-A negative shift that reaches a signal or feature is a **FAIL**; one used only to build
-a label is **INFO** (that is how prediction targets are legitimately built); one that
-cannot be classified is **WARN**.
+| Level | Name | What it can resolve | Example |
+|---|---|---|---|
+| L1 | AST-local | a single call or expression | `rolling(5, center=True)`, `shift(-1)` literal |
+| L2 | symbol resolution | import aliases (`import pandas as pd`, `from scipy.signal import filtfilt as ff`), module-qualified calls, callable aliases (`fwd = pd.Series.shift; fwd(x, -1)`), methods, nested functions, lambdas, comprehensions, chained operations (`df.close.shift(-1).rolling(3).mean()`) | `from sklearn.model_selection import train_test_split as tts` |
+| L3 | limited data flow | taint from a future-information source through assignments, string column keys, attributes, `DataFrame.assign`, dict/list literals, and **same-file helper functions** (each function gets a summary of what its return value and the columns it writes depend on, iterated to a fixed point over 3 rounds) to a sink | `def fwd(s): return s.shift(-1)` … `df["sig"] = fwd(df.close)` |
 
-**Rules.**
+Not resolved (documented boundaries, each covered by a test in
+`tests/unit/test_static_adversarial.py`): data flow across files/modules, mutation
+through container methods (`lst.append(x.shift(-1))`), dynamic attribute access
+(`getattr(df, "shift")(-1)`), `exec`/`eval`, and values whose period is computed at
+runtime (a non-literal `center=` or shift period is a WARN, not a FAIL).
 
-| Rule | Detects | Default severity |
+## Sources, sinks and usage
+
+**Sources** of future information: `shift`/`diff`/`pct_change` with a negative period
+(QP001), centered rolling windows (QP002), `np.roll` with a negative shift and `x[i + k]`
+in loops (QP003), full-sample normalisation (QP007) and non-causal operations such as
+`bfill`, `filtfilt`, Savitzky–Golay, HP filters, seasonal decomposition, FFT and linear
+`interpolate` (QP015).
+
+**Sinks** decide how a source is used:
+
+- **live decision** — a value returned from `generate_signals` (or any strategy entry
+  point, including the name of a callable passed to `audit`), or assigned to a
+  signal/position/weight name or column, or a model *feature*;
+- **label / analysis** — the target argument of `fit`, a name like `y`/`target`/`label`,
+  or plotting/reporting code.
+
+The same pattern is therefore reported differently by usage:
+
+| Usage | Severity | Label in reports |
 |---|---|---|
-| QP001 | negative `shift`/`diff`/`pct_change` | FAIL if it reaches signals/features, INFO for labels, else WARN |
-| QP002 | `rolling(..., center=True)` | FAIL |
-| QP003 | `x[i + k]` in loops, `np.roll`, future-named model inputs | FAIL if traced to signals/features, else WARN |
-| QP004 | `train_test_split` without `shuffle=False` | WARN (context-dependent) |
-| QP005 | `KFold(shuffle=True)`, `ShuffleSplit`, `StratifiedKFold`, …; default K-fold in searches | WARN / INFO |
-| QP006 | scaler/imputer/PCA/selector fitted before the first split, on non-training data | FAIL |
-| QP007 | `(x - x.mean()) / x.std()`, `zscore`, `scale`, transformers fitted with no split | WARN |
-| QP008 | target column in the feature matrix, or not dropped, or `fit(X, X)` | FAIL |
-| QP009 | declared `signal_lag=0`, or `signal.shift(1) * returns` without a documented assumption | WARN |
-| QP010 | un-lagged signal × same-period returns | FAIL |
-| QP011 | strategy returns computed with no cost term anywhere / zero declared costs | WARN |
-| QP012 | future-derived data used as model input (one finding per origin) | FAIL |
-| QP013 | grid/random searches, nested loops, `itertools.product`, `PARAM_GRID` | WARN above the threshold (100), else INFO with the trial count |
-| QP014 | models fitted or parameters searched with no OOS construct | WARN |
-| QP015 | `filtfilt`, Savitzky-Golay, Gaussian smoothing, HP filter, seasonal decomposition, FFT, linear `interpolate`, `bfill` | WARN |
+| reaches a live decision | FAIL | **FORBIDDEN IN LIVE DECISION** |
+| only builds a label or analysis output | INFO | **LEGITIMATE FOR LABEL / ANALYSIS** |
+| cannot be classified | WARN | — |
 
-Rules are classes registered with `@register`; adding one does not change any other
-module (see CONTRIBUTING.md).
+Full-sample normalisation (QP007) is always a WARN (it is legitimate for offline analysis
+and cross-sectional normalisation across symbols at one timestamp is causal). A scaler
+fitted before a split is a FAIL only when the fitted object is traceable to the later
+train/test data (QP006); otherwise WARN at low confidence. QP010 (un-lagged signal ×
+same-period return) is a FAIL only when both sides are traced to close prices; when the
+price sources cannot be traced the finding is a WARN saying "Execution semantics could
+not be determined automatically" (an open-based signal traded on open-to-close returns
+is not flagged).
+
+## Rules
+
+The exact severity policy, rationale, limitations and an example for every rule are in
+the generated [rule catalogue](../api/rules.md) (`quantproof rules show QP010`). Rules are
+classes registered with `@register` and read their documentation from the registry; adding
+one does not change any other module (see CONTRIBUTING.md).
 
 ## Assumptions
 
-- Code is analysed one file at a time. Data flow across modules, through function calls
-  with non-literal arguments, or through containers is not tracked.
+- Code is analysed one file at a time (L3 is intra-file).
 - Names carry meaning: a variable called `signal` is assumed to be a decision, `returns`
   a realised return. Unusual naming reduces recall.
 - Context-dependent patterns (shuffled splits, K-fold) are WARN with an explanation, not
   FAIL: they are valid for genuinely i.i.d. samples.
+
+## Adversarial and false-positive suites
+
+`tests/unit/test_static_adversarial.py` contains cases written to evade the analyzer
+(helpers, aliases, hidden centered windows, merged future data, a global scaler, a renamed
+target, same-bar fills behind an adapter, excessive search, …) and cases written to
+trigger false positives (plots, labels, i.i.d. random splits, offline normalisation after a
+split, same-bar execution with open-price data, cross-sectional transforms). Each case
+asserts the exact expected rule and severity.
 
 ## Example
 
@@ -75,8 +104,8 @@ quantproof scan tests/fixtures/broken
 ```
 
 reports one finding per deliberately broken fixture (`qp001_negative_shift.py` →
-QP001 FAIL, …, `qp015_backfill.py` → QP015 WARN); the clean fixtures produce no WARN or
-FAIL. These files are part of the test suite.
+QP001 FAIL, …, `qp015_backfill.py` → QP015 FAIL because the back-filled series is
+returned as the signal); the clean fixtures produce no WARN or FAIL. These files are part of the test suite.
 
 ## Limitations
 
