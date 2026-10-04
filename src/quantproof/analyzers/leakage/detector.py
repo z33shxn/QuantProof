@@ -109,21 +109,50 @@ def feature_leakage_findings(
 
 
 def signal_foresight_finding(
-    signals: pd.Series,
-    asset_returns: pd.Series,
+    signals: pd.Series | pd.DataFrame,
+    asset_returns: pd.Series | pd.DataFrame,
     *,
     max_hit_rate: float = 0.75,
     min_trades: int = 50,
 ) -> tuple[dict[str, Any], Finding]:
-    """Directional hit rate of ``sign(signal[t])`` against ``sign(r[t+1])``."""
-    df = pd.DataFrame({"s": signals, "r_next": asset_returns.shift(-1)}).dropna()
+    """Directional hit rate of ``sign(signal[t])`` against ``sign(r[t+1])``.
+
+    Wide (timestamps × symbols) inputs are pooled: each symbol's signal is compared with the
+    same symbol's next return, and all (timestamp, symbol) pairs are counted. Pooled pairs
+    are cross-sectionally correlated, so the binomial p-value is optimistic for panels.
+    """
+    if isinstance(signals, pd.DataFrame):
+        rets = (
+            asset_returns
+            if isinstance(asset_returns, pd.DataFrame)
+            else pd.DataFrame(dict.fromkeys(signals.columns, asset_returns))
+        )
+        r_next = rets.reindex(index=signals.index, columns=signals.columns).shift(-1)
+        df = pd.DataFrame(
+            {
+                "s": signals.to_numpy(dtype=float).ravel(),
+                "r_next": r_next.to_numpy(dtype=float).ravel(),
+            }
+        ).dropna()
+    else:
+        df = pd.DataFrame({"s": signals, "r_next": asset_returns.shift(-1)}).dropna()
     df = df[(df["s"] != 0) & (df["r_next"] != 0)]
     n = len(df)
     hits = int((np.sign(df["s"]) == np.sign(df["r_next"])).sum())
     rate = hits / n if n else float("nan")
-    p = float(binomtest(hits, n, 0.5, alternative="greater").pvalue) if n else float("nan")
-    evidence = {"n": n, "hits": hits, "hit_rate": rate, "p_value": p, "threshold": max_hit_rate}
-    flagged = n >= min_trades and rate > max_hit_rate and p < 1e-6
+    # Two-sided: a hit rate far *below* 50 % is the same foresight with the sign flipped.
+    p = float(binomtest(hits, n, 0.5, alternative="two-sided").pvalue) if n else float("nan")
+    extreme = max(rate, 1 - rate) if n else float("nan")
+    evidence = {
+        "n": n,
+        "hits": hits,
+        "hit_rate": rate,
+        "p_value": p,
+        "threshold": max_hit_rate,
+        "test": "two-sided binomial vs 50 %",
+    }
+    flagged = n >= min_trades and extreme > max_hit_rate and p < 1e-6
+    inverted = flagged and rate < 0.5
     finding = Finding(
         id="QP-LEAK-003",
         category=Category.LEAKAGE,
@@ -131,15 +160,21 @@ def signal_foresight_finding(
         title="Implausible directional accuracy" if flagged else "Directional accuracy plausible",
         message=(
             f"Signal direction matches the next bar's return {rate:.1%} of the time over {n} "
-            f"bars (p = {p:.1e}). Accuracy this high on market data almost always indicates "
-            "look-ahead."
+            f"bars (two-sided p = {p:.1e}). "
+            + (
+                "Accuracy this far *below* 50 % is look-ahead with the sign flipped. "
+                if inverted
+                else "Accuracy this high on market data almost always indicates look-ahead. "
+            )
+            + "Pooled panel pairs are cross-sectionally correlated, so p is optimistic there."
             if flagged
             else f"Directional hit rate vs next-bar return: {rate:.1%} over {n} bars."
         ),
         evidence=evidence,
         why_it_matters=(
             "Even strong predictive signals rarely exceed ~55–60% directional accuracy at short "
-            "horizons; near-perfect accuracy suggests the signal sees the outcome."
+            "horizons; near-perfect accuracy (or near-perfect inaccuracy) suggests the signal "
+            "sees the outcome."
         ),
         recommendation="Check that every input to the signal is known before the bar it trades.",
         confidence=Confidence.MEDIUM,

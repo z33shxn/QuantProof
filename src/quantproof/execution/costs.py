@@ -129,6 +129,53 @@ class FixedPerOrderCommission(CostComponent):
         return np.where(ctx.traded_fraction > 0, self.fee / ctx.capital, 0.0)
 
 
+class ScaledCost(CostComponent):
+    """A component whose cost is multiplied by ``multiplier`` (for sensitivity analysis)."""
+
+    def __init__(self, inner: CostComponent, multiplier: float) -> None:
+        _check_non_negative(multiplier, "multiplier")
+        self.inner = inner
+        self.multiplier = float(multiplier)
+        self.name = inner.name
+
+    def cost(self, ctx: CostContext) -> np.ndarray:
+        return self.multiplier * np.asarray(self.inner.cost(ctx), dtype=float)
+
+    def describe(self) -> dict[str, Any]:
+        return {**self.inner.describe(), "multiplier": self.multiplier}
+
+
+class TransactionTax(CostComponent):
+    """Transaction tax / stamp duty in bps of traded notional.
+
+    ``side`` restricts the tax to purchases (``"buy"``: weight increases) or sales
+    (``"sell"``: weight decreases); ``"both"`` taxes every trade. For short positions the
+    side is defined by the sign of the weight change, which is a simplification.
+    """
+
+    name = "taxes"
+
+    def __init__(self, bps: float, side: str = "both") -> None:
+        _check_non_negative(bps, "bps")
+        if side not in ("both", "buy", "sell"):
+            raise QuantProofInputError(f"side must be 'both', 'buy' or 'sell', got {side!r}.")
+        self.bps = float(bps)
+        self.side = side
+
+    def cost(self, ctx: CostContext) -> np.ndarray:
+        trades = np.nan_to_num(ctx.trades)
+        if self.side == "buy":
+            traded = np.clip(trades, 0.0, None)
+        elif self.side == "sell":
+            traded = np.clip(-trades, 0.0, None)
+        else:
+            traded = np.abs(trades)
+        return traded * self.bps / 1e4
+
+
+COMPONENT_ORDER = ("commission", "spread", "slippage", "impact", "taxes", "statutory")
+
+
 @dataclass
 class TransactionCostModel:
     """Composite cost model: the sum of its components.
@@ -148,8 +195,9 @@ class TransactionCostModel:
         spread_bps: float = 0.0,
         slippage_bps: float = 0.0,
         impact_coefficient: float = 0.0,
+        tax_bps: float = 0.0,
     ) -> TransactionCostModel:
-        """Common linear model: commission + half spread + fixed slippage (+ optional impact)."""
+        """Common model: commission + half spread + fixed slippage (+ optional impact, taxes)."""
         from quantproof.execution.impact import SquareRootImpact
         from quantproof.execution.slippage import FixedSlippage
         from quantproof.execution.spread import FixedSpread
@@ -163,7 +211,39 @@ class TransactionCostModel:
             comps.append(FixedSlippage(slippage_bps))
         if impact_coefficient:
             comps.append(SquareRootImpact(impact_coefficient))
+        if tax_bps:
+            comps.append(TransactionTax(tax_bps))
         return cls(comps)
+
+    @classmethod
+    def compose(
+        cls,
+        *,
+        commission: CostComponent | None = None,
+        spread: CostComponent | None = None,
+        slippage: CostComponent | None = None,
+        impact: CostComponent | None = None,
+        taxes: CostComponent | None = None,
+    ) -> TransactionCostModel:
+        """Explicit composition; ``None`` disables a component.
+
+        >>> from quantproof.execution import BpsCommission, FixedSpread
+        >>> TransactionCostModel.compose(commission=BpsCommission(1), spread=FixedSpread(2)).names
+        ['commission', 'spread']
+        """
+        return cls([c for c in (commission, spread, slippage, impact, taxes) if c is not None])
+
+    @property
+    def names(self) -> list[str]:
+        return [c.name for c in self.components]
+
+    def without(self, *names: str) -> TransactionCostModel:
+        """Copy with the named components removed (e.g. ``model.without("impact")``)."""
+        return TransactionCostModel([c for c in self.components if c.name not in set(names)])
+
+    def scaled(self, multiplier: float) -> TransactionCostModel:
+        """Copy with every component's cost multiplied by ``multiplier``."""
+        return TransactionCostModel([ScaledCost(c, multiplier) for c in self.components])
 
     @property
     def is_zero(self) -> bool:
