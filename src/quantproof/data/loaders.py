@@ -64,19 +64,22 @@ def load_frame(source: DataSource, *, timestamp_column: str | None = None) -> pd
                 f"Data file not found: {path}. Pass a CSV/Parquet path or a pandas DataFrame."
             )
         suffix = path.suffix.lower()
-        if suffix == ".csv":
-            frame = pd.read_csv(path)
-        elif suffix in {".parquet", ".pq"}:
-            try:
-                frame = pd.read_parquet(path)
-            except ImportError as exc:  # pragma: no cover - depends on optional extra
-                raise QuantProofDataError(
-                    "Reading Parquet requires pyarrow. Install with: pip install 'quantproof[parquet]'"
-                ) from exc
-        else:
+        if suffix not in {".csv", ".parquet", ".pq"}:
             raise QuantProofDataError(
                 f"Unsupported data format {suffix!r} for {path}. Use .csv or .parquet."
             )
+        try:
+            frame = pd.read_csv(path) if suffix == ".csv" else pd.read_parquet(path)
+        except ImportError as exc:  # pragma: no cover - depends on optional extra
+            raise QuantProofDataError(
+                "Reading Parquet requires pyarrow. Install with: pip install 'quantproof[parquet]'"
+            ) from exc
+        except (ValueError, OSError) as exc:
+            # pandas/pyarrow parse errors (ParserError, EmptyDataError, ArrowInvalid and
+            # UnicodeDecodeError are ValueErrors) are input problems, not QuantProof bugs.
+            raise QuantProofDataError(
+                f"Could not read {path} as {suffix.lstrip('.')}: {type(exc).__name__}: {exc}"
+            ) from exc
     if isinstance(frame.index, pd.MultiIndex):
         frame = flatten_multiindex(frame)
     frame.columns = [normalize_column_name(c) for c in frame.columns]
