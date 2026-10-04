@@ -234,10 +234,16 @@ details summary { cursor: pointer; color: var(--ink-2); }
 <h2>8. Cost sensitivity</h2>
 {% if ex.cost_sensitivity %}
 <div class="grid2"><div class="card">{{ cost_chart|safe }}</div>
-<table><thead><tr><th class="num">One-way cost (bps)</th><th class="num">Net Sharpe</th><th class="num">CAGR</th></tr></thead><tbody>
-{% for r in ex.cost_sensitivity %}<tr><td class="num">{{ r.one_way_cost_bps|num(1) }}</td><td class="num">{{ r.sharpe|num(2) }}</td><td class="num">{{ r.cagr|pct }}</td></tr>{% endfor %}
+<table><caption>Whole audit cost model scaled by each multiplier</caption><thead><tr><th scope="col" class="num">Cost multiplier</th><th scope="col" class="num">Linear one-way cost (bps)</th><th scope="col" class="num">Net Sharpe</th><th scope="col" class="num">CAGR</th></tr></thead><tbody>
+{% for r in ex.cost_sensitivity %}<tr><td class="num">{{ r.multiplier|num(1) }}×</td><td class="num">{{ r.linear_one_way_cost_bps|num(1) }}</td><td class="num">{{ r.sharpe|num(2) }}</td><td class="num">{{ r.cagr|pct }}</td></tr>{% endfor %}
 </tbody></table></div>
-<p>Break-even one-way cost: <b>{{ ex.break_even_one_way_cost_bps|num(1) }} bps</b>. Audit cost components (sum over the window, fraction of equity): {% for k, val in ex.cost_breakdown_total.items() %}{{ k }} {{ val|num(4) }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+<p>Mean return is erased at <b>{{ ex.break_even_cost_multiplier|num(2) }}×</b> the audit cost model (linear break-even ≈ {{ ex.break_even_one_way_cost_bps|num(1) }} bps one-way).</p>
+{% if ex.cost_attribution %}
+<h3>Cost attribution</h3>
+<table><caption>{{ ex.cost_attribution.units }}</caption><thead><tr><th scope="col">Item</th><th scope="col" class="num">Sum</th><th scope="col" class="num">Annualized</th></tr></thead><tbody>
+{% for r in ex.cost_attribution.rows %}<tr><th scope="row">{{ r.item }}</th><td class="num">{{ r.sum|num(4) }}</td><td class="num">{{ r.annualized|num(4) }}</td></tr>{% endfor %}
+</tbody></table>
+{% endif %}
 <ul>{% for l in ex.limitations %}<li>{{ l }}</li>{% endfor %}</ul>
 {% else %}<p class="meta">Not available for this audit mode.</p>{% endif %}
 

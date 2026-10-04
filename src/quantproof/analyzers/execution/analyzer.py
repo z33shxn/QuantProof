@@ -20,8 +20,29 @@ Verdict rules (explicit)
 * ``QP-EXEC-002`` transaction costs: WARN if the strategy declares no non-zero cost
   assumption; INFO if declared one-way costs are below the auditor's; else PASS.
 * ``QP-EXEC-003`` cost survival: WARN if realistic net Sharpe ≤ 0 while gross Sharpe > 0,
-  or if the break-even one-way cost is below twice the realistic one-way cost.
+  or if the break-even cost multiplier (mean gross return / mean audit cost) is below 2,
+  i.e. doubling the audit cost model would erase the mean return.
 * ``QP-EXEC-004`` turnover: WARN if costs consume ≥ 50 % of gross return, else INFO.
+* ``QP-EXEC-006`` WARN when the strategy declares an execution style (intrabar, event-driven,
+  VWAP/TWAP) that cannot be simulated or verified from bar data.
+
+Execution semantics
+-------------------
+``close``       close-to-close: decided at close *t*, filled at close *t + lag* (lag 0 = same bar).
+``next_close``  as ``close`` with lag ≥ 1.
+``next_open``   decided at close *t*, filled at the open of bar *t + lag*.
+``limit``       limit order resting during bar *t + 1*; optimistic fill-on-touch.
+Intrabar, event-driven, VWAP and TWAP fills are *not* simulated; they are reported as
+untestable rather than silently approximated.
+
+Cost attribution
+----------------
+Every cost component returns a per-bar cost as a fraction of equity, so gross return,
+each component and net return are additive: ``net_t = gross_t − Σ_k cost_k,t``. The
+attribution table reports these sums (arithmetic, over the evaluation window) and their
+annualized means. The cost-multiplier table rescales the *whole* audit cost model
+(including impact) by each multiplier; impact is not linear in size, so a multiplier is
+a stress on cost *levels*, not a change of trade size.
 """
 
 from __future__ import annotations
@@ -33,6 +54,7 @@ import numpy as np
 import pandas as pd
 
 from quantproof.config import ExecutionConfig
+from quantproof.errors import QuantProofInputError
 from quantproof.execution.costs import TransactionCostModel
 from quantproof.execution.fills import SimulationResult, simulate
 from quantproof.results import Category, Finding
@@ -42,6 +64,21 @@ from quantproof.statistics.sharpe import annualized_return, max_drawdown, sharpe
 _T = TypeVar("_T", pd.Series, pd.DataFrame)
 
 EDGE_RETAINED_FAIL = 0.25
+BREAK_EVEN_MULTIPLIER_WARN = 2.0
+
+EXECUTION_SEMANTICS: dict[str, str] = {
+    "close": "close-to-close: decided at close t, filled at close t+lag",
+    "next_close": "decided at close t, filled at close t+lag (lag >= 1)",
+    "next_open": "decided at close t, filled at the open of bar t+lag",
+    "limit": "limit order resting during bar t+1, filled on touch (optimistic)",
+}
+UNTESTABLE_FILLS: dict[str, str] = {
+    "intrabar": "fills inside a bar at prices bar data does not reveal",
+    "event": "event-driven fills at arbitrary times",
+    "event_driven": "event-driven fills at arbitrary times",
+    "vwap": "volume-weighted fills over an interval",
+    "twap": "time-weighted fills over an interval",
+}
 MIN_NAIVE_SHARPE = 0.5
 COST_DRAG_WARN = 0.5
 
@@ -68,19 +105,65 @@ def cost_model_from(cfg: ExecutionConfig | dict[str, Any]) -> TransactionCostMod
         spread_bps=float(get("spread_bps", 0.0) or 0.0),
         slippage_bps=float(get("slippage_bps", 0.0) or 0.0),
         impact_coefficient=float(get("impact_coefficient", 0.0) or 0.0),
+        tax_bps=float(get("tax_bps", 0.0) or 0.0),
     )
 
 
 def one_way_bps(d: dict[str, Any]) -> float:
+    """Linear one-way cost (commission + half spread + slippage + taxes) in bps."""
     return (
         float(d.get("commission_bps", 0) or 0)
         + float(d.get("spread_bps", 0) or 0) / 2
         + float(d.get("slippage_bps", 0) or 0)
+        + float(d.get("tax_bps", 0) or 0)
     )
 
 
+def declared_fill(declared: dict[str, Any] | None) -> tuple[str | None, str | None]:
+    """``(fill, untestable_reason)`` for a declared EXECUTION dict; validates the name."""
+    if declared is None:
+        return None, None
+    fill = str(declared.get("fill", "close")).strip().lower().replace("-", "_")
+    if fill in UNTESTABLE_FILLS:
+        return fill, UNTESTABLE_FILLS[fill]
+    if fill not in EXECUTION_SEMANTICS:
+        raise QuantProofInputError(
+            f"EXECUTION['fill'] = {declared.get('fill')!r} is not recognised. Use one of "
+            f"{sorted(EXECUTION_SEMANTICS)} (simulated) or {sorted(UNTESTABLE_FILLS)} "
+            "(declared but not testable from bars)."
+        )
+    return fill, None
+
+
+def cost_attribution(
+    gross: pd.Series, breakdown: pd.DataFrame, periods_per_year: float
+) -> dict[str, Any]:
+    """Additive decomposition gross − Σ components = net (sums and annualized means)."""
+    comps = breakdown.drop(columns=["none"], errors="ignore")
+    total = comps.sum(axis=1) if comps.shape[1] else pd.Series(0.0, index=gross.index)
+    net = gross - total.reindex(gross.index, fill_value=0.0)
+    n = max(len(gross), 1)
+
+    def ann(x: float) -> float:
+        return float(x / n * periods_per_year)
+
+    rows = [{"item": "gross", "sum": float(gross.sum()), "annualized": ann(gross.sum())}]
+    for c in comps.columns:
+        v = -float(comps[c].sum())
+        rows.append({"item": str(c), "sum": v, "annualized": ann(v)})
+    rows.append({"item": "net", "sum": float(net.sum()), "annualized": ann(net.sum())})
+    return {
+        "rows": rows,
+        "total_costs": float(total.sum()),
+        "units": "sum of per-bar returns, fraction of equity (arithmetic, not compounded)",
+    }
+
+
 def realistic_simulation(
-    prices: pd.DataFrame, signals: pd.Series, cfg: ExecutionConfig, periods_per_year: float
+    prices: pd.DataFrame,
+    signals: pd.Series | pd.DataFrame,
+    cfg: ExecutionConfig,
+    periods_per_year: float,
 ) -> SimulationResult:
     """Simulate under the auditor's assumptions (used for statistics downstream)."""
     fill = cfg.fill if cfg.fill != "next_open" or "open" in prices.columns else "close"
@@ -97,7 +180,7 @@ def realistic_simulation(
 
 def analyze_execution(
     prices: pd.DataFrame,
-    signals: pd.Series,
+    signals: pd.Series | pd.DataFrame,
     cfg: ExecutionConfig,
     *,
     declared: dict[str, Any] | None,
@@ -134,11 +217,12 @@ def analyze_execution(
             "gross_metrics": metrics(window(realistic.gross_returns), periods_per_year),
         },
     }
-    if declared is not None:
+    d_fill, untestable = declared_fill(declared)
+    if declared is not None and untestable is None:
         d_sim = simulate(
             prices,
             signals,
-            fill=str(declared.get("fill", "close")),
+            fill=str(d_fill),
             lag=int(declared.get("signal_lag", 1)),
             cost_model=cost_model_from(declared),
             capital=float(declared.get("capital", cfg.capital)),
@@ -160,16 +244,26 @@ def analyze_execution(
             {"signal_lag": "next_open", **metrics(window(sim.gross_returns), periods_per_year)}
         )
 
-    # Cost sensitivity at the realistic lag
+    # Cost sensitivity: the whole audit cost model scaled by each multiplier.
     gross = window(realistic.gross_returns)
-    turnover = window(realistic.trades).abs()
+    costs = window(realistic.costs)
+    turnover = window(realistic.gross_turnover)
     cost_rows = []
-    for bps in cfg.cost_grid_bps:
-        net = gross - turnover * bps / 1e4
-        cost_rows.append({"one_way_cost_bps": bps, **metrics(net, periods_per_year)})
-    mean_turnover = float(turnover.mean())
-    mean_gross = float(gross.mean())
+    for m in cfg.cost_multipliers:
+        net = gross - costs * m
+        cost_rows.append(
+            {
+                "multiplier": float(m),
+                "linear_one_way_cost_bps": float(m) * cfg.one_way_cost_bps,
+                **metrics(net, periods_per_year),
+            }
+        )
+    mean_turnover = float(turnover.mean()) if len(turnover) else 0.0
+    mean_gross = float(gross.mean()) if len(gross) else float("nan")
+    mean_cost = float(costs.mean()) if len(costs) else 0.0
     break_even = mean_gross / mean_turnover * 1e4 if mean_turnover > 0 else float("inf")
+    break_even_mult = mean_gross / mean_cost if mean_cost > 0 else float("inf")
+    attribution = cost_attribution(gross, window(realistic.cost_breakdown), periods_per_year)
 
     sr_naive = lag_rows[0]["sharpe"]
     sr_lag1 = lag_rows[1]["sharpe"]
@@ -181,7 +275,7 @@ def analyze_execution(
     declared_lag = None if declared is None else declared.get("signal_lag")
     declared_cost = one_way_bps(declared) if declared else 0.0
     optimistic = declared is None or declared_lag == 0 or declared_cost == 0
-    headline_key = "declared" if declared is not None else "naive"
+    headline_key = "declared" if "declared" in scenarios else "naive"
     sr_headline = scenarios[headline_key]["metrics"]["sharpe"]
     sr_real = scenarios["realistic"]["metrics"]["sharpe"]
     retained = (
@@ -193,7 +287,16 @@ def analyze_execution(
         "scenarios": scenarios,
         "lag_sensitivity": lag_rows,
         "cost_sensitivity": cost_rows,
+        "cost_attribution": attribution,
         "break_even_one_way_cost_bps": break_even,
+        "break_even_cost_multiplier": break_even_mult,
+        "semantics": {
+            "audit": EXECUTION_SEMANTICS.get(cfg.fill, cfg.fill),
+            "declared": None
+            if d_fill is None
+            else EXECUTION_SEMANTICS.get(d_fill, UNTESTABLE_FILLS.get(d_fill, d_fill)),
+            "declared_simulated": declared is not None and untestable is None,
+        },
         "edge_retained_after_one_bar_lag": edge_retained,
         "headline_scenario": headline_key,
         "headline_retained_under_audit": retained,
@@ -208,6 +311,8 @@ def analyze_execution(
             "Fills are simulated at bar prices without queue position, partial fills or "
             "latency within the bar.",
             "Notional-dependent costs assume constant capital.",
+            "Break-even one-way cost assumes linear costs; the break-even multiplier scales the "
+            "full model including impact.",
             "The square-root impact model is an order-of-magnitude approximation.",
         ],
     }
@@ -354,7 +459,7 @@ def analyze_execution(
     # QP-EXEC-003
     gross_sr = scenarios["realistic"]["gross_metrics"]["sharpe"]
     net_sr = scenarios["realistic"]["metrics"]["sharpe"]
-    margin_ok = break_even >= 2 * cfg.one_way_cost_bps
+    margin_ok = break_even_mult >= BREAK_EVEN_MULTIPLIER_WARN
     if (
         math.isfinite(gross_sr)
         and gross_sr > 0
@@ -368,12 +473,15 @@ def analyze_execution(
                 title="Edge is fragile to transaction costs",
                 message=(
                     f"Gross Sharpe {gross_sr:.2f} vs net {net_sr:.2f} at {cfg.one_way_cost_bps:.1f} "
-                    f"bps one-way; break-even cost is {break_even:.1f} bps one-way."
+                    f"bps one-way. Mean return is erased at {break_even_mult:.2f}× the audit cost "
+                    f"model (break-even linear cost ≈ {break_even:.1f} bps one-way)."
                 ),
                 evidence={
                     "gross_sharpe": gross_sr,
                     "net_sharpe": net_sr,
                     "break_even_bps": break_even,
+                    "break_even_multiplier": break_even_mult,
+                    "threshold_multiplier": BREAK_EVEN_MULTIPLIER_WARN,
                     "audit_one_way_bps": cfg.one_way_cost_bps,
                 },
                 why_it_matters="Small errors in cost estimates would eliminate the strategy's return.",
@@ -391,11 +499,13 @@ def analyze_execution(
                 if math.isfinite(net_sr) and net_sr > 0
                 else "No gross edge to erode",
                 message=(
-                    f"Break-even one-way cost {break_even:.1f} bps vs audit assumption "
-                    f"{cfg.one_way_cost_bps:.1f} bps (net Sharpe {net_sr:.2f})."
+                    f"Break-even at {break_even_mult:.2f}× the audit cost model (linear "
+                    f"≈ {break_even:.1f} bps one-way vs {cfg.one_way_cost_bps:.1f} bps assumed; "
+                    f"net Sharpe {net_sr:.2f})."
                 ),
                 evidence={
                     "break_even_bps": break_even,
+                    "break_even_multiplier": break_even_mult,
                     "net_sharpe": net_sr,
                     "gross_sharpe": gross_sr,
                 },
@@ -404,7 +514,7 @@ def analyze_execution(
 
     # QP-EXEC-004
     gross_total = float(gross.sum())
-    cost_total = float(window(realistic.costs).sum())
+    cost_total = float(costs.sum())
     drag = cost_total / gross_total if gross_total > 0 else float("nan")
     turn = realistic.turnover.get("annualized", float("nan"))
     heavy = math.isfinite(drag) and drag >= COST_DRAG_WARN
@@ -425,4 +535,22 @@ def analyze_execution(
             confidence=Confidence.MEDIUM,
         )
     )
+
+    # QP-EXEC-006
+    if untestable is not None:
+        findings.append(
+            Finding(
+                id="QP-EXEC-006",
+                category=Category.EXECUTION,
+                severity=Severity.WARN,
+                title="Execution semantics not testable from bars",
+                message=(
+                    f"The strategy declares fill={d_fill!r} ({untestable}). Bar data cannot "
+                    "verify these fills, so the declared scenario was not simulated; the audit "
+                    f"used {EXECUTION_SEMANTICS.get(cfg.fill, cfg.fill)} instead."
+                ),
+                evidence={"declared_fill": d_fill, "audit_fill": cfg.fill},
+                confidence=Confidence.HIGH,
+            )
+        )
     return section, findings, realistic

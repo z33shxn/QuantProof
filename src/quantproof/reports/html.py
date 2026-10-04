@@ -115,9 +115,9 @@ def render_html(result: AuditResult) -> str:
     if ex.get("cost_sensitivity"):
         rows = ex["cost_sensitivity"]
         cost_chart = bar_chart(
-            [f"{r['one_way_cost_bps']:g}" for r in rows],
+            [f"{r['multiplier']:g}x" for r in rows],
             [r.get("sharpe") for r in rows],
-            y_label="Net Sharpe by cost (bps)",
+            y_label="Net Sharpe by cost multiplier",
         )
     pbo = s.get("validation", {}).get("pbo", {})
     pbo_chart = (

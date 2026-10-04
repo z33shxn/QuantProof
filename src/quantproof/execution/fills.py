@@ -29,11 +29,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 
+from quantproof.data.panel import is_panel
 from quantproof.errors import QuantProofDataError, QuantProofInputError
 from quantproof.execution.costs import CostContext, TransactionCostModel
 from quantproof.execution.turnover import turnover_stats
@@ -185,11 +186,16 @@ def make_fill_model(fill: str | FillModel, lag: int) -> FillModel:
         return fill
     if fill == "close":
         return MarketOnClose(lag)
+    if fill == "next_close":
+        return MarketOnClose(max(1, lag))
     if fill == "next_open":
         return NextOpen(max(1, lag))
     if fill == "limit":
         return LimitOrder()
-    raise QuantProofInputError(f"Unknown fill model {fill!r}; use 'close', 'next_open' or 'limit'.")
+    raise QuantProofInputError(
+        f"Unknown fill model {fill!r}; use 'close', 'next_close', 'next_open' or 'limit'. "
+        "Intrabar and event-driven execution cannot be simulated from bars."
+    )
 
 
 @dataclass
@@ -200,12 +206,15 @@ class SimulationResult:
     net_returns: pd.Series
     costs: pd.Series
     cost_breakdown: pd.DataFrame
-    weights: pd.Series
-    trades: pd.Series
+    # Single asset: Series indexed by timestamp. Portfolio: timestamps × symbols DataFrame.
+    weights: pd.Series | pd.DataFrame
+    trades: pd.Series | pd.DataFrame
     fill_model: dict[str, Any]
     cost_model: list[dict[str, Any]]
     fill_rate: float = 1.0
     turnover: dict[str, Any] = field(default_factory=dict)
+    gross_turnover: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
+    symbol_gross: pd.DataFrame | None = None
 
 
 def causal_volatility(close: pd.Series, window: int = 20) -> pd.Series:
@@ -217,7 +226,7 @@ def causal_volatility(close: pd.Series, window: int = 20) -> pd.Series:
 
 def simulate(
     data: pd.DataFrame,
-    targets: pd.Series,
+    targets: pd.Series | pd.DataFrame,
     *,
     fill: str | FillModel = "close",
     lag: int = 1,
@@ -229,7 +238,20 @@ def simulate(
     """Simulate target weights on price data under a fill model and cost model.
 
     ``targets`` is aligned to ``data.index``; missing targets are treated as flat (0).
+    Panel data (``(timestamp, symbol)`` MultiIndex) is dispatched to
+    :func:`simulate_portfolio` with ``targets`` as a timestamps × symbols frame.
     """
+    if is_panel(data):
+        return simulate_portfolio(
+            data,
+            targets,
+            fill=fill,
+            lag=lag,
+            cost_model=cost_model,
+            capital=capital,
+            periods_per_year=periods_per_year,
+            vol_window=vol_window,
+        )
     if not isinstance(targets, pd.Series):
         targets = pd.Series(np.asarray(targets, dtype=float), index=data.index)
     targets = targets.reindex(data.index).astype(float)
@@ -268,4 +290,75 @@ def simulate(
         cost_model=cost_model.describe(),
         fill_rate=out.fill_rate,
         turnover=turnover_stats(out.trades, periods_per_year=periods_per_year),
+        gross_turnover=out.trades.abs().rename("gross_turnover"),
+    )
+
+
+def simulate_portfolio(
+    data: pd.DataFrame,
+    targets: pd.DataFrame | pd.Series,
+    *,
+    fill: str | FillModel = "close",
+    lag: int = 1,
+    cost_model: TransactionCostModel | None = None,
+    capital: float = 1_000_000.0,
+    periods_per_year: float = 252.0,
+    vol_window: int = 20,
+) -> SimulationResult:
+    """Simulate portfolio weights on panel data (one fill model per symbol, costs summed).
+
+    Weights are fractions of total equity. With close fills the portfolio return
+    ``Σ_i w_i,t-1 · r_i,t`` is exact; with next-open fills each symbol's return compounds the
+    overnight and intraday legs and the portfolio return is their sum (a first-order
+    approximation that ignores cross-symbol rebalancing within the bar). Symbols missing at a
+    timestamp contribute nothing for that bar.
+    """
+    if isinstance(targets, pd.Series):
+        targets = targets.unstack(level=1)
+    times = pd.DatetimeIndex(data.index.get_level_values(0)).unique().sort_values()
+    gross_parts: dict[str, pd.Series] = {}
+    trades: dict[str, pd.Series] = {}
+    weights: dict[str, pd.Series] = {}
+    breakdown: pd.DataFrame | None = None
+    fill_rates = []
+    describe: dict[str, Any] = {}
+    cost_desc: list[dict[str, Any]] = []
+    for sym in data.index.get_level_values(1).unique():
+        sub = cast(pd.DataFrame, data.xs(sym, level=1))
+        tgt = targets[str(sym)] if str(sym) in targets.columns else pd.Series(0.0, index=sub.index)
+        res = simulate(
+            sub,
+            tgt.reindex(sub.index),
+            fill=fill,
+            lag=lag,
+            cost_model=cost_model,
+            capital=capital,
+            periods_per_year=periods_per_year,
+            vol_window=vol_window,
+        )
+        gross_parts[str(sym)] = res.gross_returns.reindex(times, fill_value=0.0)
+        trades[str(sym)] = res.trades.reindex(times, fill_value=0.0)
+        weights[str(sym)] = res.weights.reindex(times).ffill().fillna(0.0)
+        bd = res.cost_breakdown.reindex(times, fill_value=0.0)
+        breakdown = bd if breakdown is None else breakdown.add(bd, fill_value=0.0)
+        fill_rates.append(res.fill_rate)
+        describe, cost_desc = res.fill_model, res.cost_model
+    symbol_gross = pd.DataFrame(gross_parts, index=times)
+    gross = symbol_gross.sum(axis=1).rename("gross")
+    assert breakdown is not None
+    costs = breakdown.sum(axis=1).rename("costs")
+    trades_df = pd.DataFrame(trades, index=times)
+    return SimulationResult(
+        gross_returns=gross,
+        net_returns=(gross - costs).rename("net"),
+        costs=costs,
+        cost_breakdown=breakdown,
+        weights=pd.DataFrame(weights, index=times),
+        trades=trades_df,
+        fill_model={**describe, "portfolio": True, "symbols": len(gross_parts)},
+        cost_model=cost_desc,
+        fill_rate=float(np.mean(fill_rates)) if fill_rates else 1.0,
+        turnover=turnover_stats(trades_df, periods_per_year=periods_per_year),
+        gross_turnover=trades_df.abs().sum(axis=1).rename("gross_turnover"),
+        symbol_gross=symbol_gross,
     )
