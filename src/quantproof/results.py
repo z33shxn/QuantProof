@@ -100,6 +100,8 @@ class Finding(BaseModel):
     location: Location | None = None
     why_it_matters: str | None = None
     recommendation: str | None = None
+    impact: str | None = Field(default=None, description="Potential impact if the issue is real.")
+    investigate: str | None = Field(default=None, description="How to investigate the finding.")
     confidence: Confidence | None = Field(
         default=None,
         description="Analysis confidence that the matched pattern means what the rule says "
@@ -113,16 +115,25 @@ class Finding(BaseModel):
 
     @model_validator(mode="after")
     def _fill_from_registry(self) -> Finding:
-        """Default why/recommendation text from the rule registry for issues."""
-        if self.is_issue and (self.why_it_matters is None or self.recommendation is None):
+        """Default why / impact / investigate / recommendation text from the rule registry.
+
+        Every WARN and FAIL finding therefore answers: what happened (``message``), why it
+        matters, its potential impact, how to investigate, and what to do.
+        """
+        if self.is_issue:
             from quantproof.rules import REGISTRY
 
             spec = REGISTRY.get(self.id)
             if spec is not None:
-                if self.why_it_matters is None and spec.rationale:
-                    object.__setattr__(self, "why_it_matters", spec.rationale)
-                if self.recommendation is None and spec.remediation:
-                    object.__setattr__(self, "recommendation", spec.remediation)
+                defaults = {
+                    "why_it_matters": spec.rationale,
+                    "impact": spec.impact,
+                    "investigate": spec.investigate,
+                    "recommendation": spec.remediation,
+                }
+                for name, text in defaults.items():
+                    if getattr(self, name) is None and text:
+                        object.__setattr__(self, name, text)
         return self
 
     @field_validator("evidence", mode="before")
@@ -136,6 +147,15 @@ class Finding(BaseModel):
         return self.severity in (Severity.WARN, Severity.FAIL)
 
 
+class Narrative(BaseModel):
+    """Evidence-first explanation of the verdict (no scores)."""
+
+    primary_reason: str
+    supporting_evidence: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    next_steps: list[str] = Field(default_factory=list)
+
+
 class AuditSummary(BaseModel):
     """Counts by severity, plus the explicit reasons behind the verdict."""
 
@@ -145,6 +165,76 @@ class AuditSummary(BaseModel):
     info: int = 0
     verdict_rules: list[str] = Field(default_factory=lambda: list(VERDICT_RULES))
     verdict_reasons: list[str] = Field(default_factory=list)
+    narrative: Narrative | None = None
+
+
+# Issues in these categories invalidate everything computed downstream of the signals.
+_UPSTREAM = ("causality", "static", "leakage", "data")
+_CONFIDENCE_RANK = {"high": 0, "medium": 1, "low": 2, None: 3}
+
+
+def _first_sentence(text: str, limit: int = 220) -> str:
+    head = text.split(". ")[0].strip()
+    head = head if head.endswith(".") else head + "."
+    return head if len(head) <= limit else head[: limit - 1] + "…"
+
+
+def _issue_rank(f: Finding) -> tuple[int, int, int, int]:
+    sev = 0 if f.severity is Severity.FAIL else 1
+    live = 0 if f.usage is Usage.LIVE_DECISION else 1
+    upstream = _UPSTREAM.index(f.category) if f.category in _UPSTREAM else len(_UPSTREAM)
+    conf = _CONFIDENCE_RANK.get(f.confidence.value if f.confidence else None, 3)
+    return (sev, live, upstream, conf)
+
+
+def build_narrative(status: Severity, findings: list[Finding]) -> Narrative:
+    """Primary reason, supporting evidence, recommendations and next steps for a verdict."""
+    issues = sorted((f for f in findings if f.is_issue), key=_issue_rank)
+    if not issues:
+        ran = sorted({f.category for f in findings if f.severity is Severity.PASS})
+        return Narrative(
+            primary_reason="No executed check produced a WARN or FAIL finding.",
+            supporting_evidence=[f"Checks passed in: {', '.join(ran)}."] if ran else [],
+            recommendations=[],
+            next_steps=[
+                "A PASS is not evidence of profitability: confirm on data the research never "
+                "touched (paper trading or a later period).",
+                "Review the limitations section; checks that did not run are not covered.",
+            ],
+        )
+    top = issues[0]
+    primary = f"{top.severity.value} {top.id} — {top.title}: {_first_sentence(top.message)}"
+    evidence = [
+        f"{f.severity.value} {f.id} — {f.title}: {_first_sentence(f.message)}" for f in issues[1:6]
+    ]
+    if len(issues) > 6:
+        evidence.append(f"… and {len(issues) - 6} more WARN/FAIL finding(s).")
+    recs: list[str] = []
+    for f in issues:
+        if f.recommendation and f.recommendation not in recs:
+            recs.append(f.recommendation)
+    steps: list[str] = []
+    if any(f.category in ("causality", "static") and f.severity is Severity.FAIL for f in issues):
+        steps.append(
+            "Fix look-ahead first: while signals use future data, every performance, cost and "
+            "overfitting statistic in this report is computed on contaminated returns."
+        )
+    if any(f.category == "data" for f in issues):
+        steps.append("Resolve data-quality issues and re-run; they affect every later check.")
+    if any(f.category == "execution" for f in issues):
+        steps.append("Re-run with lagged fills and realistic costs and report those numbers.")
+    if any(f.category in ("validation", "statistics") for f in issues):
+        steps.append(
+            "Declare every variant tried (statistics.trials or PARAM_GRID) and judge the "
+            "strategy on out-of-sample evidence, not the in-sample headline."
+        )
+    steps.append("Re-run the audit after each fix; the verdict is recomputed from scratch.")
+    return Narrative(
+        primary_reason=primary,
+        supporting_evidence=evidence,
+        recommendations=recs[:8],
+        next_steps=steps,
+    )
 
 
 def determine_verdict(findings: list[Finding]) -> tuple[Severity, AuditSummary]:
@@ -172,6 +262,7 @@ def determine_verdict(findings: list[Finding]) -> tuple[Severity, AuditSummary]:
         passed=counts[Severity.PASS],
         info=counts[Severity.INFO],
         verdict_reasons=reasons,
+        narrative=build_narrative(status, findings),
     )
     return status, summary
 
@@ -226,6 +317,42 @@ class AuditResult(BaseModel):
         """Only WARN and FAIL findings."""
         return [f for f in self.findings if f.is_issue]
 
+    @property
+    def narrative(self) -> Narrative:
+        """Primary reason, supporting evidence, recommendations and next steps."""
+        return self.summary.narrative or build_narrative(self.status, self.findings)
+
+    @property
+    def statistics(self) -> dict[str, Any]:
+        """Sharpe, PSR, DSR (with trial provenance), bootstrap CI, MinTRL."""
+        return dict(self.sections.get("statistics", {}))
+
+    @property
+    def validation(self) -> dict[str, Any]:
+        """Walk-forward / OOS evidence, PBO, CPCV and data-snooping results."""
+        return dict(self.sections.get("validation", {}))
+
+    @property
+    def execution(self) -> dict[str, Any]:
+        """Execution scenarios, cost attribution, cost multipliers and turnover."""
+        return dict(self.sections.get("execution", {}))
+
+    @property
+    def causality(self) -> dict[str, Any]:
+        """Future-perturbation test report."""
+        return dict(self.sections.get("causality", {}))
+
+    @property
+    def metrics(self) -> dict[str, Any]:
+        """Headline metrics: naive/supplied (``headline``) and audited (``realistic``)."""
+        ov = self.sections.get("overview", {})
+        return {k: ov[k] for k in ("headline", "realistic") if k in ov}
+
+    @property
+    def reproducibility(self) -> dict[str, Any]:
+        """The reproducibility manifest (fingerprints, configuration, environment)."""
+        return dict(self.manifest)
+
     def by_category(self, category: str) -> list[Finding]:
         """Findings belonging to one category."""
         return [f for f in self.findings if f.category == category]
@@ -246,6 +373,18 @@ class AuditResult(BaseModel):
         from quantproof.reports.json import render_json
 
         return render_json(self, indent=indent)
+
+    def to_markdown(self) -> str:
+        """Markdown report."""
+        from quantproof.reports.markdown import render_markdown
+
+        return render_markdown(self)
+
+    def to_html(self) -> str:
+        """Self-contained HTML report (no external resources)."""
+        from quantproof.reports.html import render_html
+
+        return render_html(self)
 
 
 def sort_findings(findings: list[Finding]) -> list[Finding]:

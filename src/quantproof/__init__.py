@@ -19,7 +19,7 @@ Sub-packages expose the building blocks directly::
 """
 
 from quantproof._version import __version__
-from quantproof.adapters import PandasAdapter, ResearchArtifacts
+from quantproof.adapters import GenericResultsAdapter, PandasAdapter, ResearchArtifacts
 from quantproof.config import AuditConfig
 from quantproof.engine import audit
 from quantproof.errors import (
@@ -39,6 +39,7 @@ __all__ = [
     "Category",
     "Confidence",
     "Finding",
+    "GenericResultsAdapter",
     "PandasAdapter",
     "QuantProofConfigError",
     "QuantProofDataError",

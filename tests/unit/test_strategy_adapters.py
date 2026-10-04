@@ -8,6 +8,7 @@ import pytest
 
 from quantproof import PandasAdapter, ResearchArtifacts, load_strategy
 from quantproof.errors import QuantProofInputError, QuantProofStrategyError
+from quantproof.severity import Severity
 from quantproof.strategy import normalize_signals
 
 
@@ -106,3 +107,55 @@ def test_pandas_adapter(tmp_path):
     art2 = ResearchArtifacts(returns=r, trades=pd.DataFrame({"qty": [1]}))
     art2.validate()
     assert "execution-timing checks skipped" in art2.metadata["notes"][0]
+
+
+def test_generic_adapter_equity_and_ledger(tmp_path):
+    from quantproof import GenericResultsAdapter, audit
+    from quantproof.config import AuditConfig
+
+    idx = pd.bdate_range("2022-01-03", periods=300)
+    rng = np.random.default_rng(0)
+    equity = 100 * np.cumprod(1 + rng.normal(0.0004, 0.01, 300))
+    export = pd.DataFrame({"Date": idx, "Equity": equity})
+    export.to_csv(tmp_path / "eq.csv", index=False)
+    ledger = pd.DataFrame(
+        {
+            "sig": idx[10:20].astype(str),
+            "fill": (idx[10:20] - pd.Timedelta(days=1)).astype(str),  # fills before signals
+        }
+    )
+    adapter = GenericResultsAdapter(
+        equity_column="Equity",
+        returns_are="net",
+        trade_columns={"signal_time": "sig", "execution_time": "fill"},
+    )
+    art = adapter.load(tmp_path / "eq.csv", trades=ledger, metadata={"engine": "custom"})
+    assert len(art.returns) == 299
+    np.testing.assert_allclose(art.returns.iloc[0], equity[1] / equity[0] - 1)
+    assert art.metadata["returns_are"] == "net" and art.metadata["engine"] == "custom"
+    assert any("derived from equity" in c for c in art.metadata["conversions"])
+    res = audit(artifacts=art, config=AuditConfig(profile="quick"))
+    assert "QP-EXEC-005" in res.ids(Severity.FAIL)
+
+
+def test_generic_adapter_validation():
+    from quantproof import GenericResultsAdapter
+
+    idx = pd.bdate_range("2022-01-03", periods=5)
+    with pytest.raises(QuantProofInputError, match="returns_are"):
+        GenericResultsAdapter(returns_are="after-tax")  # type: ignore[arg-type]
+    with pytest.raises(QuantProofInputError, match="not both"):
+        GenericResultsAdapter(returns_column="r", equity_column="e", returns_are="net")
+    with pytest.raises(QuantProofInputError, match="trade_columns keys"):
+        GenericResultsAdapter(returns_are="net", trade_columns={"entry": "x"})
+    a = GenericResultsAdapter(returns_are="gross")
+    with pytest.raises(QuantProofInputError, match="No returns or equity"):
+        a.load(pd.DataFrame({"x": range(5)}, index=idx))
+    with pytest.raises(QuantProofInputError, match="strictly positive"):
+        GenericResultsAdapter(equity_column="e", returns_are="net").load(
+            pd.DataFrame({"e": [1.0, 0.0, 2.0, 3.0, 4.0]}, index=idx)
+        )
+    with pytest.raises(QuantProofInputError, match="duplicate"):
+        a.load(pd.DataFrame({"returns": [0.1, 0.2]}, index=[idx[0], idx[0]]))
+    out = a.load(pd.DataFrame({"returns": np.linspace(-0.01, 0.01, 5)}, index=idx))
+    assert out.metadata["returns_are"] == "gross" and out.metadata["conversions"] == []
