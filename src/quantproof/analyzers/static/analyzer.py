@@ -199,7 +199,26 @@ class ModuleContext:
     splits: list[SplitEvent] = field(default_factory=list)
     comments: dict[int, str] = field(default_factory=dict)
     module_constants: dict[str, Any] = field(default_factory=dict)
+    aliases: dict[str, tuple[str, bool]] = field(default_factory=dict)
+    summaries: dict[str, FunctionSummary] = field(default_factory=dict)
     config: StaticConfig = field(default_factory=StaticConfig)
+    # Extra function names whose return value is the strategy's live signal (e.g. the name
+    # of a callable passed to ``audit``), in addition to ENTRY_FUNCTIONS.
+    entry_points: frozenset[str] = frozenset()
+
+    def origin_for(self, node: ast.AST) -> TaintOrigin | None:
+        """The taint origin registered for ``node`` (if the node is a source)."""
+        for o in self.origins:
+            if o.node is node:
+                return o
+        return None
+
+    def sinks_reached(self, node: ast.AST, kinds: set[str]) -> list[TaintSink]:
+        """Sinks of the given kinds reached by the origin at ``node``."""
+        origin = self.origin_for(node)
+        if origin is None:
+            return []
+        return [s for s in self.sinks if s.kind in kinds and any(o is origin for o in s.origins)]
 
     # ------------------------------------------------------------------ helpers
     def location(self, node: ast.AST) -> Location:
@@ -329,7 +348,11 @@ def _module_constants(tree: ast.Module) -> dict[str, Any]:
 
 
 def build_context(
-    source: str, filename: str = "<string>", config: StaticConfig | None = None
+    source: str,
+    filename: str = "<string>",
+    config: StaticConfig | None = None,
+    *,
+    entry_points: frozenset[str] | set[str] | None = None,
 ) -> ModuleContext:
     """Parse source and pre-compute facts. Raises :class:`SyntaxError` on invalid code."""
     tree = ast.parse(source, filename=filename)
@@ -339,6 +362,7 @@ def build_context(
         tree=tree,
         lines=source.splitlines(),
         config=config or StaticConfig(),
+        entry_points=frozenset(entry_points or ()),
     )
     ctx.imports = _collect_imports(tree)
     ctx.parents, ctx.scope_of = _build_parents_and_scopes(tree)
@@ -350,6 +374,8 @@ def build_context(
             ctx.calls.append(CallSite(node, name, qual, recv, ctx.scope_of.get(id(node), "")))
     ctx.calls.sort(key=lambda c: (c.node.lineno, c.node.col_offset))
     ctx.splits = _collect_splits(ctx)
+    ctx.aliases = _collect_aliases(tree)
+    ctx.summaries = compute_summaries(ctx)
     _TaintAnalysis(ctx).run()
     return ctx
 
@@ -396,24 +422,160 @@ def _collect_splits(ctx: ModuleContext) -> list[SplitEvent]:
 
 
 # ----------------------------------------------------------------- taint flow
-class _TaintAnalysis:
-    """Flow-insensitive-within-statement, order-sensitive taint tracking.
+NON_CAUSAL_CALLS = {
+    "filtfilt": "zero-phase filtfilt",
+    "sosfiltfilt": "zero-phase sosfiltfilt",
+    "savgol_filter": "Savitzky-Golay filter (centered)",
+    "gaussian_filter1d": "Gaussian filter (centered)",
+    "hpfilter": "Hodrick-Prescott filter (two-sided)",
+    "seasonal_decompose": "seasonal decomposition (two-sided)",
+    "STL": "STL decomposition (two-sided)",
+    "bfill": "backward fill",
+    "backfill": "backward fill",
+}
+LOCAL_STAT_TOKENS = {"rolling", "expanding", "ewm", "groupby", "resample", "cummax", "cummin"}
 
-    Sources: ``shift``/``diff``/``pct_change`` with negative periods (QP001),
-    ``np.roll`` and ``x[i + k]`` look-ahead indexing inside loops (QP003).
-    Taint propagates through assignments to names and to string column keys.
-    Sinks: values returned from strategy entry functions or assigned to
-    signal/position names ("signal"), first argument of fit/predict ("feature").
+
+def non_causal_description(call: ast.Call, name: str, qual: str) -> str | None:
+    """Description if ``call`` is a two-sided / non-causal transformation, else None."""
+    desc = NON_CAUSAL_CALLS.get(name)
+    if name == "detrend" and qual.startswith("scipy"):
+        desc = "full-sample detrending"
+    if name == "fillna":
+        method = literal(get_kwarg(call, "method"))
+        if method in {"bfill", "backfill"}:
+            desc = "fillna(method='bfill')"
+    if name == "interpolate":
+        method = literal(get_kwarg(call, "method"))
+        direction = literal(get_kwarg(call, "limit_direction"))
+        if method not in {"pad", "ffill"} or direction in {"backward", "both"}:
+            shown = method if method is not NOT_LITERAL else "linear"
+            desc = f"interpolate(method={shown!r})"
+    if name == "convolve" and qual.startswith(("numpy", "np")):
+        mode = literal(get_kwarg(call, "mode"))
+        if len(call.args) > 2:
+            mode = literal(call.args[2])
+        if mode == "same":
+            desc = "np.convolve(mode='same') (centered kernel)"
+    if qual.startswith(("numpy.fft", "np.fft", "scipy.fft")):
+        desc = "FFT-based transform over the whole sample"
+    return desc
+
+
+def global_stat_call(node: ast.AST, methods: set[str]) -> ast.Call | None:
+    """``x.mean()``-style call over a whole series (not rolling/expanding/train-only)."""
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in methods
+    ):
+        recv_ids = names_in(node.func.value)
+        if recv_ids & LOCAL_STAT_TOKENS:
+            return None
+        if any(TRAIN_NAME_RE.search(i) for i in recv_ids | string_keys_in(node.func.value)):
+            return None
+        return node
+    return None
+
+
+def is_full_sample_normalization(node: ast.AST) -> bool:
+    """``(x - x.mean()) / x.std()`` (or median/min centring) over a whole series."""
+    if not (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)):
+        return False
+    num = node.left
+    return (
+        isinstance(num, ast.BinOp)
+        and isinstance(num.op, ast.Sub)
+        and global_stat_call(num.right, {"mean", "median", "min"}) is not None
+    )
+
+
+PANDAS_GROUP_TOKENS = {"groupby", "resample", "rolling", "expanding", "ewm"}
+
+
+def is_cross_sectional(ctx: ModuleContext, node: ast.AST) -> bool:
+    """True if ``node`` sits inside a groupby(...) call chain or ``apply(axis=1)``."""
+    for anc in ctx.ancestors(node):
+        if isinstance(anc, ast.Call):
+            if "groupby" in names_in(anc.func):
+                return True
+            if (
+                isinstance(anc.func, ast.Attribute)
+                and anc.func.attr == "apply"
+                and literal(get_kwarg(anc, "axis")) in (1, "columns")
+            ):
+                return True
+    return False
+
+
+@dataclass
+class FunctionSummary:
+    """What a helper function does with future information (Level-3 analysis)."""
+
+    name: str
+    returns: list[TaintOrigin] = field(default_factory=list)
+    mutated_keys: dict[str, list[TaintOrigin]] = field(default_factory=dict)
+
+
+def _collect_aliases(tree: ast.Module) -> dict[str, tuple[str, bool]]:
+    """``lead = pd.Series.shift`` → {"lead": ("shift", True)} (unbound: first arg is the object)."""
+    out: dict[str, tuple[str, bool]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            tgt, value = node.targets[0], node.value
+            if (
+                isinstance(tgt, ast.Name)
+                and isinstance(value, ast.Attribute)
+                and value.attr in SHIFT_LIKE | {"rolling"}
+            ):
+                dotted = dotted_name(value) or ""
+                head = dotted.split(".")[0]
+                unbound = head in {"pd", "pandas", "Series", "DataFrame"} or dotted.endswith(
+                    ("Series." + value.attr, "DataFrame." + value.attr)
+                )
+                out[tgt.id] = (value.attr, unbound)
+    return out
+
+
+class _TaintAnalysis:
+    """Order-sensitive taint tracking of future information (analysis Levels 1–3).
+
+    Sources
+        negative ``shift``/``diff``/``pct_change`` (QP001), centered ``rolling`` (QP002),
+        ``np.roll`` and ``x[i + k]`` in loops (QP003), full-sample normalization (QP007),
+        two-sided transformations such as ``bfill``/``filtfilt`` (QP015) — including calls
+        through simple aliases (``lead = pd.Series.shift``).
+    Propagation
+        assignments to names, string column keys (``df["x"] = ...``), attributes and
+        ``DataFrame.assign``; through expressions, lambdas and comprehensions; through calls
+        to helper functions defined in the same file (their *return value* and the columns
+        they set on DataFrames passed to them). Each function has its own scope; module-level
+        taint is visible inside functions.
+    Sinks
+        ``signal``: returned from a strategy entry function or assigned to a
+        signal/position/weight name; ``feature``: first argument of fit/predict/transform;
+        ``label``: target argument of fit or a name like ``y``/``target``/``label``.
+    Boundary
+        no cross-module analysis, no containers (lists/dicts of series), no dynamic
+        attributes (``getattr``), no aliasing of DataFrame objects.
     """
 
-    def __init__(self, ctx: ModuleContext) -> None:
+    def __init__(
+        self,
+        ctx: ModuleContext,
+        *,
+        record: bool = True,
+        summaries: dict[str, FunctionSummary] | None = None,
+    ) -> None:
         self.ctx = ctx
+        self.record = record
+        self.summaries = summaries if summaries is not None else ctx.summaries
         self.loop_vars: list[set[str]] = []
 
     def run(self) -> None:
         self._block(self.ctx.tree.body, {}, {}, func=None)
 
-    # taint maps: identifier -> origins
+    # ------------------------------------------------------------- origins
     def _origins_in(
         self,
         node: ast.AST,
@@ -426,28 +588,25 @@ class _TaintAnalysis:
                 origin = self._source_call(sub)
                 if origin:
                     found.append(origin)
+                summary = self._summary_for(sub)
+                if summary is not None:
+                    found.extend(summary.returns)
+            elif (
+                isinstance(sub, ast.BinOp)
+                and is_full_sample_normalization(sub)
+                and not is_cross_sectional(self.ctx, sub)
+            ):
+                found.append(self._origin("QP007", sub, "full-sample normalization"))
             elif isinstance(sub, ast.Subscript):
                 origin = self._lookahead_index(sub)
                 if origin:
                     found.append(origin)
-                key = literal(sub.slice)
-                if isinstance(key, str) and key in keys:
-                    found.extend(keys[key])
-                elif isinstance(key, (list, tuple)):
-                    for k in key:
-                        if isinstance(k, str) and k in keys:
-                            found.extend(keys[k])
-                elif isinstance(sub.slice, ast.Name) and sub.slice.id in self.ctx.module_constants:
-                    const = self.ctx.module_constants[sub.slice.id]
-                    items = const if isinstance(const, (list, tuple)) else [const]
-                    for k in items:
-                        if isinstance(k, str) and k in keys:
-                            found.extend(keys[k])
+                for k in self._subscript_keys(sub):
+                    found.extend(keys.get(k, []))
             elif isinstance(sub, ast.Name) and sub.id in names:
                 found.extend(names[sub.id])
             elif isinstance(sub, ast.Attribute) and sub.attr in keys:
                 found.extend(keys[sub.attr])
-        # de-duplicate by node identity, keep order
         seen: set[int] = set()
         unique = []
         for o in found:
@@ -456,18 +615,62 @@ class _TaintAnalysis:
                 unique.append(o)
         return unique
 
+    def _subscript_keys(self, sub: ast.Subscript) -> list[str]:
+        key = literal(sub.slice)
+        if isinstance(key, str):
+            return [key]
+        if isinstance(key, (list, tuple)):
+            return [k for k in key if isinstance(k, str)]
+        if isinstance(sub.slice, ast.Name) and sub.slice.id in self.ctx.module_constants:
+            const = self.ctx.module_constants[sub.slice.id]
+            items = const if isinstance(const, (list, tuple)) else [const]
+            return [k for k in items if isinstance(k, str)]
+        return []
+
+    def _summary_for(self, call: ast.Call) -> FunctionSummary | None:
+        func = call.func
+        if isinstance(func, ast.Name):
+            return self.summaries.get(func.id)
+        if (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id in {"self", "cls"}
+        ):
+            return self.summaries.get(func.attr)
+        return None
+
     def _source_call(self, call: ast.Call) -> TaintOrigin | None:
         name, qual, _ = _resolve_call(call, self.ctx.imports)
+        args = list(call.args)
+        alias = self.ctx.aliases.get(name) if isinstance(call.func, ast.Name) else None
+        if alias is not None:
+            name, unbound = alias
+            if unbound:
+                args = args[1:]
         if name in SHIFT_LIKE:
-            period = call.args[0] if call.args else get_kwarg(call, "periods")
+            period = args[0] if args else get_kwarg(call, "periods")
             neg, _certain = is_negative_expr(period)
             if neg:
-                return self._origin("QP001", call, f"{name}() with a negative period")
+                via = (
+                    f" (via alias '{call.func.id}')"
+                    if alias and isinstance(call.func, ast.Name)
+                    else ""
+                )
+                return self._origin("QP001", call, f"{name}() with a negative period{via}")
+        if name == "rolling" and literal(get_kwarg(call, "center")) is True:
+            return self._origin("QP002", call, "centered rolling window")
         if name == "roll" and qual.startswith(("numpy", "np")):
             shift = call.args[1] if len(call.args) > 1 else get_kwarg(call, "shift")
             neg, _ = is_negative_expr(shift)
             if neg:
                 return self._origin("QP003", call, "np.roll with a negative shift")
+        if name in {"zscore", "scale", "minmax_scale", "robust_scale"} and (
+            qual.startswith(("scipy", "sklearn")) or name == "zscore"
+        ):
+            return self._origin("QP007", call, f"{name}() over the full sample")
+        desc = non_causal_description(call, name, qual)
+        if desc:
+            return self._origin("QP015", call, desc)
         return None
 
     def _lookahead_index(self, sub: ast.Subscript) -> TaintOrigin | None:
@@ -492,6 +695,11 @@ class _TaintAnalysis:
         self.ctx.origins.append(origin)
         return origin
 
+    def _sink(self, kind: str, node: ast.AST, origins: list[TaintOrigin], detail: str) -> None:
+        if self.record:
+            self.ctx.sinks.append(TaintSink(kind, node, origins, detail))
+
+    # ---------------------------------------------------------- statements
     def _assign_targets(
         self,
         targets: Iterable[ast.expr],
@@ -524,11 +732,9 @@ class _TaintAnalysis:
                 if origins:
                     keys[tgt.attr] = origins
             if origins and label and SIGNAL_NAME_RE.search(label):
-                self.ctx.sinks.append(
-                    TaintSink("signal", stmt, origins, f"assigned to signal/position '{label}'")
-                )
+                self._sink("signal", stmt, origins, f"assigned to signal/position '{label}'")
             elif origins and label and LABEL_NAME_RE.match(label):
-                self.ctx.sinks.append(TaintSink("label", stmt, origins, f"assigned to '{label}'"))
+                self._sink("label", stmt, origins, f"assigned to '{label}'")
 
     def _check_calls(
         self,
@@ -540,18 +746,24 @@ class _TaintAnalysis:
             if not isinstance(sub, ast.Call):
                 continue
             name, _, _ = _resolve_call(sub, self.ctx.imports)
+            summary = self._summary_for(sub)
+            if summary is not None:
+                for k, origins in summary.mutated_keys.items():
+                    keys[k] = origins
+            if (
+                name == "transform"
+                and isinstance(sub.func, ast.Attribute)
+                and (names_in(sub.func.value) & PANDAS_GROUP_TOKENS)
+            ):
+                continue  # pandas groupby/rolling transform, not a model input
             if name in FIT_METHODS | PREDICT_METHODS and sub.args:
                 origins = self._origins_in(sub.args[0], names, keys)
                 if origins:
-                    self.ctx.sinks.append(
-                        TaintSink("feature", sub, origins, f"used as features in .{name}()")
-                    )
+                    self._sink("feature", sub, origins, f"used as features in .{name}()")
                 if name in FIT_METHODS and len(sub.args) > 1:
                     y_origins = self._origins_in(sub.args[1], names, keys)
                     if y_origins:
-                        self.ctx.sinks.append(
-                            TaintSink("label", sub, y_origins, f"used as target in .{name}()")
-                        )
+                        self._sink("label", sub, y_origins, f"used as target in .{name}()")
             elif name == "assign":
                 for kw in sub.keywords:
                     if kw.arg is None:
@@ -560,9 +772,7 @@ class _TaintAnalysis:
                     if origins:
                         keys[kw.arg] = origins
                         if SIGNAL_NAME_RE.search(kw.arg):
-                            self.ctx.sinks.append(
-                                TaintSink("signal", sub, origins, f"assigned to '{kw.arg}'")
-                            )
+                            self._sink("signal", sub, origins, f"assigned to '{kw.arg}'")
 
     def _block(
         self,
@@ -582,11 +792,11 @@ class _TaintAnalysis:
         func: str | None,
     ) -> None:
         if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            # Function bodies see module-level taint but keep their own locals.
-            self._block(stmt.body, dict(names), keys, func=stmt.name)
+            # Each function has its own scope; module-level taint is visible inside it.
+            self._block(stmt.body, dict(names), dict(keys), func=stmt.name)
             return
         if isinstance(stmt, ast.ClassDef):
-            self._block(stmt.body, dict(names), keys, func=func)
+            self._block(stmt.body, dict(names), dict(keys), func=func)
             return
         if isinstance(stmt, ast.Assign):
             self._check_calls(stmt.value, names, keys)
@@ -607,14 +817,18 @@ class _TaintAnalysis:
         if isinstance(stmt, ast.Return) and stmt.value is not None:
             self._check_calls(stmt.value, names, keys)
             origins = self._origins_in(stmt.value, names, keys)
+            if self._returns is not None:
+                self._returns.extend(origins)
             if (
                 origins
                 and func
-                and (func in ENTRY_FUNCTIONS or SIGNAL_NAME_RE.search(func) is not None)
-            ):
-                self.ctx.sinks.append(
-                    TaintSink("signal", stmt, origins, f"returned from '{func}()'")
+                and (
+                    func in ENTRY_FUNCTIONS
+                    or func in self.ctx.entry_points
+                    or SIGNAL_NAME_RE.search(func) is not None
                 )
+            ):
+                self._sink("signal", stmt, origins, f"returned from '{func}()'")
             return
         if isinstance(stmt, (ast.For, ast.AsyncFor)):
             loop_names = {n.id for n in ast.walk(stmt.target) if isinstance(n, ast.Name)}
@@ -624,8 +838,7 @@ class _TaintAnalysis:
             self._block(stmt.orelse, names, keys, func)
             return
         if isinstance(stmt, ast.While):
-            loop_names = names_in(stmt.test)
-            self.loop_vars.append(loop_names)
+            self.loop_vars.append(names_in(stmt.test))
             self._block(stmt.body, names, keys, func)
             self.loop_vars.pop()
             self._block(stmt.orelse, names, keys, func)
@@ -646,6 +859,42 @@ class _TaintAnalysis:
             return
         if isinstance(stmt, ast.Expr):
             self._check_calls(stmt.value, names, keys)
+            # Evaluate for sources so standalone calls (e.g. plotting) register origins.
+            self._origins_in(stmt.value, names, keys)
+
+    _returns: list[TaintOrigin] | None = None
+
+    # ------------------------------------------------------------ summaries
+    def summarize(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> FunctionSummary:
+        """Run the body of ``fn`` with clean parameters and record what it returns/sets."""
+        self._returns = []
+        keys: dict[str, list[TaintOrigin]] = {}
+        self._block(fn.body, {}, keys, func=fn.name)
+        summary = FunctionSummary(fn.name, list(self._returns), dict(keys))
+        self._returns = None
+        return summary
+
+
+def compute_summaries(ctx: ModuleContext, rounds: int = 3) -> dict[str, FunctionSummary]:
+    """Fixed-point summaries for every function defined in the file (helpers of helpers)."""
+    funcs = [
+        n for n in ast.walk(ctx.tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    summaries: dict[str, FunctionSummary] = {}
+    for _ in range(rounds):
+        new: dict[str, FunctionSummary] = {}
+        for fn in funcs:
+            analysis = _TaintAnalysis(ctx, record=False, summaries=summaries)
+            s = analysis.summarize(fn)
+            if s.returns or s.mutated_keys:
+                new[fn.name] = s
+        if {k: [id(o.node) for o in v.returns] for k, v in new.items()} == {
+            k: [id(o.node) for o in v.returns] for k, v in summaries.items()
+        } and set(new) == set(summaries):
+            summaries = new
+            break
+        summaries = new
+    return summaries
 
 
 # --------------------------------------------------------------------- running
@@ -655,13 +904,18 @@ def analyze_source(
     config: StaticConfig | None = None,
     *,
     include_passes: bool = True,
+    entry_points: frozenset[str] | set[str] | None = None,
 ) -> list[Finding]:
-    """Run every registered static rule on ``source``."""
+    """Run every registered static rule on ``source``.
+
+    ``entry_points`` names functions whose return value is the live signal, in addition to
+    the conventional names (``generate_signals`` …).
+    """
     from quantproof.analyzers.static.rules import RULES
 
     cfg = config or StaticConfig()
     try:
-        ctx = build_context(source, filename, cfg)
+        ctx = build_context(source, filename, cfg, entry_points=entry_points)
     except SyntaxError as exc:
         return [
             Finding(

@@ -6,9 +6,10 @@ QuantProof object being required to read the output.
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from quantproof._utils import to_jsonable
 from quantproof.severity import VERDICT_RULES, Confidence, Severity
@@ -44,6 +45,20 @@ class Category:
         SENSITIVITY,
         REPRODUCIBILITY,
     )
+
+
+class Usage(str, Enum):
+    """How future-dated information is used, when a finding concerns timing."""
+
+    LIVE_DECISION = "live-decision"
+    LABEL_OR_ANALYSIS = "label-or-analysis"
+
+    @property
+    def label(self) -> str:
+        return {
+            Usage.LIVE_DECISION: "FORBIDDEN IN LIVE DECISION",
+            Usage.LABEL_OR_ANALYSIS: "LEGITIMATE FOR LABEL / ANALYSIS",
+        }[self]
 
 
 class Location(BaseModel):
@@ -85,7 +100,30 @@ class Finding(BaseModel):
     location: Location | None = None
     why_it_matters: str | None = None
     recommendation: str | None = None
-    confidence: Confidence | None = None
+    confidence: Confidence | None = Field(
+        default=None,
+        description="Analysis confidence that the matched pattern means what the rule says "
+        "(not a statistical probability).",
+    )
+    usage: Usage | None = Field(
+        default=None,
+        description="Where future information is used: 'live-decision' (forbidden in a live "
+        "decision) or 'label-or-analysis' (legitimate for labels or offline analysis).",
+    )
+
+    @model_validator(mode="after")
+    def _fill_from_registry(self) -> Finding:
+        """Default why/recommendation text from the rule registry for issues."""
+        if self.is_issue and (self.why_it_matters is None or self.recommendation is None):
+            from quantproof.rules import REGISTRY
+
+            spec = REGISTRY.get(self.id)
+            if spec is not None:
+                if self.why_it_matters is None and spec.rationale:
+                    object.__setattr__(self, "why_it_matters", spec.rationale)
+                if self.recommendation is None and spec.remediation:
+                    object.__setattr__(self, "recommendation", spec.remediation)
+        return self
 
     @field_validator("evidence", mode="before")
     @classmethod
