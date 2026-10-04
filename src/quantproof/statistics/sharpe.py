@@ -75,6 +75,11 @@ def sharpe_ratio(
     r = _excess(returns, risk_free_rate, periods_per_year, nan_policy)
     if r.size < 2:
         return float("nan")
+    # The Sharpe ratio is scale-invariant; normalizing by max |r| avoids underflow of the
+    # squared deviations for very small (e.g. subnormal) magnitudes and overflow for huge ones.
+    scale = float(np.max(np.abs(r)))
+    if 0.0 < scale < math.inf:
+        r = r / scale
     sd = float(np.std(r, ddof=1))
     if _std_is_zero(r, sd):
         return float("nan")
@@ -87,6 +92,9 @@ def sharpe_ratios(matrix: Any, *, ddof: int = 1) -> np.ndarray:
     m = np.asarray(matrix, dtype=np.float64)
     if m.ndim == 1:
         m = m[:, None]
+    scale = np.abs(m).max(axis=0) if m.size else np.ones(m.shape[1])
+    scale = np.where((scale > 0) & np.isfinite(scale), scale, 1.0)
+    m = m / scale  # scale-invariant; avoids underflow/overflow (see sharpe_ratio)
     mean = m.mean(axis=0)
     sd = m.std(axis=0, ddof=ddof)
     out = np.full(m.shape[1], np.nan)

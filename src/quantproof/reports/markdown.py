@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from quantproof._utils import format_number
-from quantproof.audit.models import Category
-from quantproof.audit.severity import Severity
 from quantproof.experiments.manifest import manifest_to_yaml
 from quantproof.reports.text import SECTION_TITLES
+from quantproof.results import Category
+from quantproof.severity import Severity
 
 if TYPE_CHECKING:
-    from quantproof.audit.models import AuditResult
+    from quantproof.results import AuditResult
 
 _BADGE = {
     Severity.FAIL: "🔴 FAIL",
@@ -53,10 +53,25 @@ def render_markdown(result: AuditResult, *, include_passes: bool = True) -> str:
         "|---:|---:|---:|---:|",
         f"| {s.failures} | {s.warnings} | {s.passed} | {s.info} |",
         "",
-        "**Why this verdict:**",
+        "## Why this verdict",
         "",
     ]
-    out += [f"- {_esc(r)}" for r in s.verdict_reasons]
+    n = result.narrative
+    out += [f"**Primary reason.** {_esc(n.primary_reason)}", ""]
+    if n.supporting_evidence:
+        out += ["**Supporting evidence.**", ""] + [f"- {_esc(e)}" for e in n.supporting_evidence]
+        out.append("")
+    if n.next_steps:
+        out += ["**Next steps.**", ""]
+        out += [f"{i}. {_esc(step)}" for i, step in enumerate(n.next_steps, 1)]
+        out.append("")
+    out += [
+        "<details><summary>All verdict reasons</summary>",
+        "",
+        *[f"- {_esc(r)}" for r in s.verdict_reasons],
+        "",
+        "</details>",
+    ]
     if "headline" in ov:
         out += [
             "",
@@ -93,11 +108,20 @@ def render_markdown(result: AuditResult, *, include_passes: bool = True) -> str:
         out.append("")
     issues = [f for f in result.findings if f.is_issue]
     if issues:
-        out += ["## Recommendations", ""]
+        out += ["## Issue details", ""]
         for f in issues:
-            if f.recommendation:
-                out.append(f"- **{f.id}** — {_esc(f.recommendation)}")
-        out.append("")
+            usage = f" — **{f.usage.label}**" if f.usage is not None else ""
+            out += [f"### {_BADGE[f.severity]} `{f.id}` {_esc(f.title)}{usage}", ""]
+            out += [f"- **What happened:** {_esc(f.message)}"]
+            for label, text in (
+                ("Why it matters", f.why_it_matters),
+                ("Potential impact", f.impact),
+                ("How to investigate", f.investigate),
+                ("Recommendation", f.recommendation),
+            ):
+                if text:
+                    out.append(f"- **{label}:** {_esc(text)}")
+            out.append("")
     stats = result.sections.get("statistics", {})
     if stats:
         dsr = stats.get("dsr", {})
@@ -109,7 +133,7 @@ def render_markdown(result: AuditResult, *, include_passes: bool = True) -> str:
             "|---|---:|---|",
             f"| Sharpe (annualized, net) | {format_number(stats.get('sharpe', {}).get('sharpe_annualized'), 2)} | n={stats.get('sharpe', {}).get('n_observations')} |",
             f"| Probabilistic Sharpe Ratio | {format_number(psr.get('psr'), 3)} | skew={format_number(psr.get('skewness'), 2)}, kurt={format_number(psr.get('kurtosis'), 2)} |",
-            f"| Deflated Sharpe Ratio | {format_number(dsr.get('dsr'), 3)} | trials={dsr.get('n_trials')}, E[max SR]={format_number(dsr.get('expected_max_sharpe_annualized'), 2)} |",
+            f"| Deflated Sharpe Ratio | {format_number(dsr.get('dsr'), 3)} | trials={dsr.get('n_trials')} ({_esc(str(dsr.get('trials_source', 'n/a')))}), E[max SR]={format_number(dsr.get('expected_max_sharpe_annualized'), 2)} ({dsr.get('expected_max_method', 'n/a')}) |",
         ]
         val = result.sections.get("validation", {})
         if isinstance(val.get("pbo"), dict) and "pbo" in val["pbo"]:

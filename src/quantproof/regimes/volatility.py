@@ -13,6 +13,8 @@ into the strategy.
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import numpy as np
 import pandas as pd
 
@@ -45,8 +47,14 @@ def volatility_regimes(
         if valid.empty:
             return pd.Series(np.nan, index=returns.index, dtype=object)
         cuts = [float(valid.quantile(q)) for q in quantiles]
+        if any(b <= a for a, b in pairwise(cuts)):
+            # Ties between quantiles (e.g. constant prices → zero volatility everywhere):
+            # regimes are not identifiable, so no bar is labelled rather than mislabelling.
+            return pd.Series(np.nan, index=returns.index, dtype=object)
     else:
         cuts = list(thresholds)
+        if any(b <= a for a, b in pairwise(cuts)):
+            raise QuantProofInputError("Volatility thresholds must be strictly increasing.")
     if len(labels) != len(cuts) + 1:
         raise QuantProofInputError("labels must have one more entry than cut-offs.")
     bins = [-np.inf, *cuts, np.inf]

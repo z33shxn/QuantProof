@@ -27,7 +27,7 @@ runner = CliRunner()
 
 @pytest.fixture(scope="module")
 def lookahead_result():
-    cfg = AuditConfig(quick=True)
+    cfg = AuditConfig(profile="quick")
     return audit(
         ROOT / "examples/lookahead_strategy/strategy.py",
         ROOT / "examples/data/prices.parquet",
@@ -124,8 +124,56 @@ def test_render_dispatch(lookahead_result):
 
 def test_cli_version_and_rules():
     assert runner.invoke(app, ["version"]).stdout.startswith("quantproof ")
-    out = runner.invoke(app, ["rules"]).stdout
-    assert "QP001" in out and "QP015" in out
+    r = runner.invoke(app, ["--version"])
+    assert r.exit_code == 0 and r.stdout.startswith("quantproof ")
+    r = runner.invoke(app, ["rules"])
+    assert r.exit_code == 0
+    assert "QP001" in r.stdout and "QP015" in r.stdout and "QP-STAT-003" in r.stdout
+    r = runner.invoke(app, ["rules", "--category", "execution", "--json"])
+    rows = json.loads(r.stdout)
+    assert rows and {x["category"] for x in rows} == {"execution"}
+    assert {"id", "name", "max_severity", "rationale", "limitations"} <= set(rows[0])
+    r = runner.invoke(app, ["rules", "show", "qp001"])
+    assert r.exit_code == 0 and r.stdout.startswith("QP001") and "Limitations" in r.stdout
+    r = runner.invoke(app, ["rules", "show", "QP999"])
+    assert r.exit_code == 3 and "Unknown rule id" in r.stderr
+    r = runner.invoke(app, ["rules", "--category", "nope"])
+    assert r.exit_code == 3
+
+
+def test_cli_exit_code_mapping():
+    from quantproof.cli import FailOn, _exit_code
+
+    assert _exit_code("PASS", FailOn.warn) == 0
+    assert _exit_code("INFO", FailOn.warn) == 0
+    assert _exit_code("WARN", FailOn.warn) == 1
+    assert _exit_code("FAIL", FailOn.warn) == 2
+    assert _exit_code("WARN", FailOn.fail) == 0
+    assert _exit_code("FAIL", FailOn.fail) == 2
+    assert _exit_code("FAIL", FailOn.never) == 0
+
+
+def test_cli_internal_error_has_no_traceback(monkeypatch, tmp_path):
+    import quantproof.engine as engine
+
+    def boom(*a, **k):
+        raise RuntimeError("synthetic bug")
+
+    monkeypatch.setattr(engine, "audit", boom)
+    args = ["audit", "-s", str(ROOT / "examples/clean_strategy/strategy.py")]
+    r = runner.invoke(app, args)
+    assert r.exit_code == 4
+    assert "Internal error: RuntimeError: synthetic bug" in r.stderr
+    assert "Traceback" not in r.stderr
+    r = runner.invoke(app, ["--debug", *args])
+    assert r.exit_code == 4 and "Traceback" in r.stderr
+
+
+def test_cli_profiles():
+    r = runner.invoke(app, ["audit", "-s", "x.py", "--quick", "--profile", "strict"])
+    assert r.exit_code == 3 and "alias" in r.stderr
+    r = runner.invoke(app, ["audit", "-s", "x.py", "--profile", "turbo"])
+    assert r.exit_code == 3
 
 
 def test_cli_audit_exit_codes_and_outputs(tmp_path):
@@ -138,14 +186,16 @@ def test_cli_audit_exit_codes_and_outputs(tmp_path):
         "--quick",
     ]
     r = runner.invoke(app, base)
-    assert r.exit_code == 1 and "OVERALL: FAIL" in r.stdout
+    assert r.exit_code == 2 and "OVERALL: FAIL" in r.stdout
+    r = runner.invoke(app, [*base, "--fail-on", "fail"])
+    assert r.exit_code == 2
     r = runner.invoke(app, [*base, "--fail-on", "never", "-o", str(tmp_path / "a.html")])
     assert r.exit_code == 0 and (tmp_path / "a.html").exists()
     r = runner.invoke(app, [*base, "--format", "markdown", "--fail-on", "never"])
     assert r.stdout.startswith("# QuantProof audit")
     r = runner.invoke(app, [*base, "-q", "-o", str(tmp_path / "a.json")])
     assert (
-        r.exit_code == 1
+        r.exit_code == 2
         and json.loads((tmp_path / "a.json").read_text())["overall_status"] == "FAIL"
     )
     r = runner.invoke(app, ["report", str(tmp_path / "a.json"), "-f", "text"])
@@ -156,11 +206,13 @@ def test_cli_audit_exit_codes_and_outputs(tmp_path):
 
 def test_cli_errors():
     r = runner.invoke(app, ["audit"])
-    assert r.exit_code == 2
+    assert r.exit_code == 3
     r = runner.invoke(app, ["audit", "-s", "missing.py", "-d", "x.csv"])
-    assert r.exit_code == 2 and "not found" in r.stderr
+    assert r.exit_code == 3 and "not found" in r.stderr
     r = runner.invoke(app, ["report", "missing.json"])
-    assert r.exit_code == 2
+    assert r.exit_code == 3
+    r = runner.invoke(app, ["audit", "--no-such-option"])
+    assert r.exit_code == 3
 
 
 def test_cli_results_mode(tmp_path):
@@ -196,7 +248,7 @@ def test_cli_validate_scan_statistics(tmp_path):
     r = runner.invoke(app, ["validate", str(ROOT / "examples/data/prices.csv")])
     assert r.exit_code == 0 and "OVERALL: PASS" in r.stdout
     r = runner.invoke(app, ["scan", str(ROOT / "tests/fixtures/broken")])
-    assert r.exit_code == 1 and "QP012" in r.stdout
+    assert r.exit_code == 2 and "QP012" in r.stdout
     r = runner.invoke(app, ["scan", str(ROOT / "tests/fixtures/clean"), "--show-passes"])
     assert r.exit_code == 0
     import numpy as np
@@ -220,7 +272,7 @@ def test_cli_init_config_and_generate_data(tmp_path):
     cfg = tmp_path / "q.yaml"
     assert runner.invoke(app, ["init-config", str(cfg)]).exit_code == 0
     assert AuditConfig.from_file(cfg) == AuditConfig()
-    assert runner.invoke(app, ["init-config", str(cfg)]).exit_code == 2
+    assert runner.invoke(app, ["init-config", str(cfg)]).exit_code == 3
     assert (
         runner.invoke(app, ["generate-data", str(tmp_path / "p.csv"), "--n", "50"]).exit_code == 0
     )
@@ -228,7 +280,7 @@ def test_cli_init_config_and_generate_data(tmp_path):
         runner.invoke(app, ["generate-data", str(tmp_path / "p.parquet"), "--n", "50"]).exit_code
         == 0
     )
-    assert runner.invoke(app, ["generate-data", str(tmp_path / "p.xlsx")]).exit_code == 2
+    assert runner.invoke(app, ["generate-data", str(tmp_path / "p.xlsx")]).exit_code == 3
 
 
 def test_html_renders_in_every_audit_mode(tmp_path, prices):
@@ -236,7 +288,7 @@ def test_html_renders_in_every_audit_mode(tmp_path, prices):
     import numpy as np
     import pandas as pd
 
-    cfg = AuditConfig(quick=True)
+    cfg = AuditConfig(profile="quick")
     idx = pd.date_range("2020", periods=400, freq="B")
     trials = pd.DataFrame(np.random.default_rng(0).normal(0, 0.01, (400, 6)), index=idx)
     results_mode = audit(returns=trials.iloc[:, 0], trial_returns=trials, config=cfg)
@@ -248,3 +300,18 @@ def test_html_renders_in_every_audit_mode(tmp_path, prices):
         assert "13. Machine-readable results" in html
         assert render_markdown(res).startswith("# QuantProof audit")
         assert "OVERALL" in render_text(res)
+
+
+def test_cli_unreadable_files_are_input_errors(tmp_path):
+    bad = tmp_path / "bad.csv"
+    bad.write_text('a,b\n1,2,3,4\n"unterminated\n')
+    empty = tmp_path / "empty.csv"
+    empty.write_text("")
+    junk = tmp_path / "junk.parquet"
+    junk.write_text("not parquet")
+    for path in (bad, empty, junk):
+        r = runner.invoke(app, ["validate", str(path)])
+        assert r.exit_code == 3, (path, r.stderr)
+        assert "Could not read" in r.stderr and "Traceback" not in r.stderr
+    r = runner.invoke(app, ["report", str(bad)])
+    assert r.exit_code == 3 and "not a QuantProof JSON report" in r.stderr

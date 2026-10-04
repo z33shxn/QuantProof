@@ -6,16 +6,24 @@ import math
 
 import numpy as np
 import pandas as pd
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
 
-from quantproof.audit.causal import perturb_future
+from quantproof.analyzers.causal import perturb_future
 from quantproof.data import generate_prices, validate_data
+from quantproof.errors import QuantProofInputError
 from quantproof.experiments import hash_dataframe
 from quantproof.statistics import sharpe_ratio
 from quantproof.statistics.probabilistic_sharpe import psr_from_moments
-from quantproof.validation import CPCV, PurgedKFold, WalkForward, label_intervals, purge
+from quantproof.validation import (
+    CPCV,
+    PurgedKFold,
+    WalkForward,
+    apply_embargo,
+    label_intervals,
+    purge,
+)
 
 finite = st.floats(min_value=-0.2, max_value=0.2, allow_nan=False, allow_infinity=False)
 returns_arrays = arrays(np.float64, st.integers(3, 200), elements=finite)
@@ -23,6 +31,10 @@ returns_arrays = arrays(np.float64, st.integers(3, 200), elements=finite)
 
 @given(returns_arrays, st.floats(0.01, 100))
 def test_sharpe_scale_invariant(r, k):
+    # Scaling a subnormal value can round it to zero (5e-324 * 0.5 == 0.0), which changes
+    # the data itself; invariance is only claimed while scaling is exact enough.
+    tiny = np.finfo(np.float64).tiny
+    assume(np.all((r == 0) | ((np.abs(r) >= tiny) & (np.abs(r * k) >= tiny))))
     a = sharpe_ratio(r)
     b = sharpe_ratio(r * k)
     if math.isnan(a):
@@ -57,7 +69,18 @@ def test_purged_kfold_invariants(n, k, horizon, embargo):
         return
     s, e = label_intervals(n, label_horizon=horizon)
     seen = []
-    for train, test in PurgedKFold(k, label_horizon=horizon, embargo=embargo).split(np.zeros(n)):
+    try:
+        splits = list(PurgedKFold(k, label_horizon=horizon, embargo=embargo).split(np.zeros(n)))
+    except QuantProofInputError as exc:
+        # Only legitimate when some fold really has no training data left.
+        assert "removed every training observation" in str(exc)  # noqa: PT017 - conditional expectation
+        empties = []
+        for test in np.array_split(np.arange(n), k):
+            train = purge(np.setdiff1d(np.arange(n), test), test, s, e)
+            empties.append(apply_embargo(train, test, n, embargo, label_start=s, label_end=e).size)
+        assert 0 in empties
+        return
+    for train, test in splits:
         assert np.intersect1d(train, test).size == 0
         assert purge(train, test, s, e).size == train.size  # nothing left to purge
         seen.append(test)
@@ -106,7 +129,7 @@ def test_hash_deterministic_and_order_sensitive(seed):
 @settings(max_examples=25, suppress_health_check=[HealthCheck.too_slow])
 @given(
     st.integers(0, 10_000),
-    st.sampled_from(["additive", "multiplicative", "permutation", "shock"]),
+    st.sampled_from(["additive", "multiplicative", "permutation", "extreme"]),
     st.integers(0, 37),
 )
 def test_perturbation_leaves_past_untouched(seed, scheme, k):

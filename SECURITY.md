@@ -20,7 +20,16 @@ Code-free operations do **not** execute user code: static analysis (`quantproof 
 Other boundaries:
 
 - Configuration files are parsed with safe loaders (`yaml.safe_load`, `json`, `tomllib`).
-- HTML reports are rendered with Jinja2 autoescaping; embedded JSON escapes `</`.
+  QuantProof never uses `pickle`; data is read only from CSV and Parquet (`pandas`/
+  `pyarrow`), and unreadable files are reported as input errors.
+- The only subprocess call is `git rev-parse HEAD` / `git status --porcelain` (argument
+  list, no shell, 5 s timeout) in the strategy's directory, to record the commit in the
+  manifest.
+- File paths are used as given; QuantProof writes only the report/config paths you pass
+  (creating parent directories) and never deletes files.
+- HTML reports are rendered with Jinja2 autoescaping; the embedded JSON encodes every `<`
+  as `\u003c`, so finding text cannot close the script element. Reports load no external
+  resources.
 - Reports and manifests include file paths, package versions, platform and the Git commit.
   Review them before sharing outside your organization.
 

@@ -7,7 +7,8 @@ noisy draw. CPCV produces many complete out-of-sample paths from the same data.
 
 ## Implementation
 
-`quantproof.validation.CPCV(n_groups=N, n_test_groups=k, embargo=0, t1=None, label_horizon=0)`:
+`quantproof.validation.CPCV(n_groups=N, n_test_groups=k, embargo=0, event_end=None,
+event_start=None, label_horizon=0)` (`t1=` is accepted as an alias of `event_end`):
 
 1. Split the sample into *N* contiguous groups (`numpy.array_split`).
 2. Each of the `C(N, k)` combinations of *k* groups is a test set (deterministic

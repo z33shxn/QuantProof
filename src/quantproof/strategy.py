@@ -5,6 +5,10 @@ A strategy is a Python file (or callable) exposing::
     def generate_signals(data: pd.DataFrame, **params) -> pd.Series:
         '''Target weight for each bar, decided using data up to and including that bar.'''
 
+For multi-asset (panel) data, ``data`` is indexed by ``(timestamp, symbol)`` and the
+function returns a wide DataFrame (timestamps × symbols) of portfolio weights, or a Series
+on the same MultiIndex.
+
 Optional module-level metadata (plain literals, so the static analyzer can read them):
 
 ``PARAMETERS``  default keyword arguments for ``generate_signals``.
@@ -40,7 +44,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from quantproof.errors import QuantProofStrategyError
+from quantproof.data.panel import is_panel, to_wide_signals
+from quantproof.errors import QuantProofDataError, QuantProofStrategyError
+
+Signals = pd.Series | pd.DataFrame
 
 ENTRY_POINT = "generate_signals"
 _EXECUTION_KEYS = {
@@ -65,9 +72,16 @@ class StrategySpec:
     execution: dict[str, Any] | None = None
     source_path: Path | None = None
 
-    def __call__(self, data: pd.DataFrame, **overrides: Any) -> pd.Series:
+    def __call__(self, data: pd.DataFrame, **overrides: Any) -> Signals:
+        """Target weights: a Series for single-asset data, a wide DataFrame for panels."""
         params = {**self.parameters, **overrides}
-        return normalize_signals(self.func(data.copy(), **params), data.index, self.name)
+        raw = self.func(data.copy(), **params)
+        if is_panel(data):
+            try:
+                return to_wide_signals(raw, data)
+            except QuantProofDataError as exc:
+                raise QuantProofStrategyError(f"{self.name}: {exc}") from exc
+        return normalize_signals(raw, data.index, self.name)
 
     def grid(self, max_trials: int | None = None, seed: int = 42) -> list[dict[str, Any]]:
         """All parameter combinations (deterministically sub-sampled above ``max_trials``)."""

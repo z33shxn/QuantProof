@@ -16,11 +16,17 @@ import numpy as np
 import pandas as pd
 
 from quantproof._utils import datetime_ns
-from quantproof.audit.models import Category, Finding, Location
-from quantproof.audit.severity import Confidence, Severity
 from quantproof.config import DataValidationConfig
 from quantproof.data.loaders import ParsedTimestamps, parse_timestamps, resolve_timestamp_column
-from quantproof.data.schemas import OHLC_COLUMNS, PRICE_COLUMNS, primary_price_column
+from quantproof.data.panel import find_symbol_column, flatten_multiindex
+from quantproof.data.schemas import (
+    OHLC_COLUMNS,
+    PRICE_COLUMNS,
+    normalize_column_name,
+    primary_price_column,
+)
+from quantproof.results import Category, Finding, Location
+from quantproof.severity import Confidence, Severity
 
 
 @dataclass
@@ -540,28 +546,21 @@ DATA_RULES: dict[str, Callable[[_Context], list[Finding]]] = {
 }
 
 
-def validate_data(
-    frame: pd.DataFrame,
-    config: DataValidationConfig | None = None,
-    *,
-    timestamp_column: str | None = None,
-) -> list[Finding]:
-    """Run all enabled data-quality rules on a *raw* (unprepared) frame.
+def _empty_finding(n: int) -> Finding:
+    return Finding(
+        id="QP-DATA-014",
+        category=Category.DATA,
+        severity=Severity.FAIL,
+        title="Empty or insufficient data",
+        message=f"Only {n} observation(s) available; nothing can be validated or audited.",
+        evidence={"rows": n},
+        confidence=Confidence.HIGH,
+    )
 
-    Parameters
-    ----------
-    frame:
-        Raw data as returned by :func:`quantproof.data.loaders.load_frame`, or any
-        DataFrame with a DatetimeIndex or a timestamp column.
-    config:
-        Thresholds and disabled rules.
-    timestamp_column:
-        Name of the timestamp column if it cannot be auto-detected.
-    """
-    cfg = config or DataValidationConfig()
-    if not cfg.enabled:
-        return []
-    ts_col = resolve_timestamp_column(frame, timestamp_column)
+
+def _validate_single(
+    frame: pd.DataFrame, cfg: DataValidationConfig, ts_col: str | None
+) -> list[Finding]:
     if ts_col is None:
         parsed = parse_timestamps(frame.index)
         body = frame.reset_index(drop=True)
@@ -572,7 +571,142 @@ def validate_data(
     findings: list[Finding] = []
     disabled = set(cfg.disabled_rules)
     for rule_id, check in DATA_RULES.items():
-        if rule_id in disabled:
+        if rule_id not in disabled:
+            findings.extend(check(ctx))
+    return findings
+
+
+def _merge_by_rule(per_symbol: dict[str, list[Finding]]) -> list[Finding]:
+    """Combine per-symbol findings into one finding per rule (worst severity wins)."""
+    by_rule: dict[str, dict[str, Finding]] = {}
+    for sym, fs in per_symbol.items():
+        for f in fs:
+            by_rule.setdefault(f.id, {})[sym] = f
+    out: list[Finding] = []
+    for items in by_rule.values():
+        worst = max(items.values(), key=lambda f: f.severity.rank)
+        affected = {s: f for s, f in items.items() if f.severity is not Severity.PASS}
+        if not affected:
+            out.append(
+                worst.model_copy(update={"message": f"{worst.message} (all {len(items)} symbols)"})
+            )
             continue
-        findings.extend(check(ctx))
+        shown = sorted(affected)[:5]
+        more = len(affected) - len(shown)
+        msg = (
+            f"{len(affected)} of {len(items)} symbol(s) affected — "
+            + "; ".join(f"{s}: {affected[s].message}" for s in shown)
+            + (f"; … and {more} more" if more > 0 else "")
+        )
+        starts = [f.location.start for f in affected.values() if f.location and f.location.start]
+        ends = [f.location.end for f in affected.values() if f.location and f.location.end]
+        out.append(
+            worst.model_copy(
+                update={
+                    "message": msg,
+                    "evidence": {
+                        "symbols_affected": sorted(affected),
+                        "by_symbol": {s: f.evidence for s, f in affected.items()},
+                    },
+                    "location": Location(start=min(starts), end=max(ends))
+                    if starts and ends
+                    else None,
+                }
+            )
+        )
+    return out
+
+
+def _sync_finding(raw: pd.DataFrame, ts_col: str, sym_col: str) -> Finding:
+    ts = parse_timestamps(raw[ts_col]).values
+    df = pd.DataFrame({"ts": ts, "sym": raw[sym_col].astype(str).to_numpy()}).dropna()
+    sets = {s: set(g["ts"]) for s, g in df.groupby("sym")}
+    union = set().union(*sets.values()) if sets else set()
+    coverage = {s: len(v) / len(union) if union else 1.0 for s, v in sets.items()}
+    spans = {s: (min(v), max(v)) for s, v in sets.items() if v}
+    common_start = max(a for a, _ in spans.values()) if spans else None
+    common_end = min(b for _, b in spans.values()) if spans else None
+    inside = (
+        {s: {t for t in v if common_start <= t <= common_end} for s, v in sets.items()}
+        if spans
+        else {}
+    )
+    inner_union = set().union(*inside.values()) if inside else set()
+    gaps = {s: len(inner_union - v) for s, v in inside.items()}
+    evidence = {
+        "symbols": len(sets),
+        "coverage": {s: round(c, 4) for s, c in coverage.items()},
+        "missing_inside_common_span": gaps,
+    }
+    if any(gaps.values()):
+        sev, msg = (
+            Severity.WARN,
+            (
+                f"{sum(1 for g in gaps.values() if g)} symbol(s) miss timestamps that other symbols "
+                "have inside the common date range; cross-sectional signals may compare prices from "
+                "different moments."
+            ),
+        )
+    elif len({spans[s] for s in spans}) > 1:
+        sev, msg = (
+            Severity.INFO,
+            "Symbols start or end on different dates but are synchronized where they overlap.",
+        )
+    else:
+        sev, msg = Severity.PASS, f"All {len(sets)} symbols share the same timestamps."
+    return Finding(
+        id="QP-DATA-015",
+        category=Category.DATA,
+        severity=sev,
+        title="Symbols synchronized" if sev is Severity.PASS else "Unsynchronized symbols",
+        message=msg,
+        evidence=evidence,
+        confidence=Confidence.HIGH,
+    )
+
+
+def validate_data(
+    frame: pd.DataFrame,
+    config: DataValidationConfig | None = None,
+    *,
+    timestamp_column: str | None = None,
+    symbol_column: str | None = None,
+) -> list[Finding]:
+    """Run all enabled data-quality rules on a *raw* (unprepared) frame.
+
+    Parameters
+    ----------
+    frame:
+        Raw data as returned by :func:`quantproof.data.loaders.load_frame`, or any
+        DataFrame with a DatetimeIndex or a timestamp column. Data with a symbol column (or a
+        ``(timestamp, symbol)`` MultiIndex) is validated per symbol, and the results are
+        merged per rule (worst severity, with a per-symbol breakdown in the evidence).
+    config:
+        Thresholds and disabled rules.
+    timestamp_column, symbol_column:
+        Names of the timestamp / symbol columns if they cannot be auto-detected.
+    """
+    cfg = config or DataValidationConfig()
+    if not cfg.enabled:
+        return []
+    frame = flatten_multiindex(frame)
+    if len(frame) == 0:
+        return [_empty_finding(0)]
+    sym_col = (
+        normalize_column_name(symbol_column) if symbol_column else find_symbol_column(frame.columns)
+    )
+    ts_col = resolve_timestamp_column(frame, timestamp_column)
+    if sym_col is None:
+        return _validate_single(frame, cfg, ts_col)
+    if ts_col is None:
+        frame = frame.reset_index()
+        ts_col = resolve_timestamp_column(frame, None)
+        assert ts_col is not None
+    per_symbol = {
+        str(sym): _validate_single(group.drop(columns=[sym_col]), cfg, ts_col)
+        for sym, group in frame.groupby(sym_col, sort=True)
+    }
+    findings = _merge_by_rule(per_symbol)
+    if "QP-DATA-015" not in set(cfg.disabled_rules):
+        findings.append(_sync_finding(frame, ts_col, sym_col))
     return findings

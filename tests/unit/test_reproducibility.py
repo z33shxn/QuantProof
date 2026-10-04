@@ -125,7 +125,7 @@ def test_config_rejects_typos_and_bad_values():
 
 
 def test_quick_mode_is_explicit_and_copy():
-    cfg = AuditConfig(quick=True)
+    cfg = AuditConfig(profile="quick")
     eff = cfg.effective()
     assert eff.statistics.n_bootstrap == 200 and eff.causality.n_timestamps == 4
     assert cfg.statistics.n_bootstrap == 1000  # original untouched

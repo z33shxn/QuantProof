@@ -9,9 +9,12 @@ import time
 from collections.abc import Callable
 
 import numpy as np
+import pandas as pd
 
-from quantproof.audit.causal import run_causality_test
-from quantproof.data import generate_prices
+from quantproof import AuditConfig, audit
+from quantproof.analyzers.causal import run_causality_test
+from quantproof.analyzers.static import analyze_source
+from quantproof.data import generate_prices, validate_data
 from quantproof.statistics import (
     bootstrap_sharpe,
     probability_of_backtest_overfitting,
@@ -54,7 +57,36 @@ def main() -> None:
     timed("Reality Check + SPA, 200 configs, B=500", lambda: reality_check(m, n_bootstrap=500))
     timed("CPCV N=10 k=2 splits, 10y", lambda: list(CPCV(10, 2, embargo=0.01).split(r)))
     timed(
-        "causality test, 32 perturbations, 10y", lambda: run_causality_test(strat, prices), repeat=1
+        "causality test, default config, 10y", lambda: run_causality_test(strat, prices), repeat=1
+    )
+    panel = (
+        pd.concat({f"S{i:02d}": generate_prices(1260, seed=i) for i in range(20)}, names=["symbol"])
+        .swaplevel()
+        .sort_index()
+    )
+
+    def xs(d):
+        c = d["close"].unstack()
+        rk = c.pct_change(20).rank(axis=1)
+        return rk.sub(rk.mean(axis=1), axis=0)
+
+    timed("causality test, panel 5y x 20 symbols", lambda: run_causality_test(xs, panel), repeat=1)
+    timed("data validation, 10y daily", lambda: validate_data(prices))
+    timed("data validation, panel 5y x 20 symbols", lambda: validate_data(panel.reset_index()))
+    source = "\n\n".join(
+        f"def f{i}(df):\n    x = df['close'].shift(1).rolling(5).mean()\n"
+        f"    y = helper{i}(x)\n    return y.pct_change()\n\n"
+        f"def helper{i}(s):\n    return s.diff()"
+        for i in range(300)
+    )
+    timed(f"static analysis, {source.count(chr(10))} lines", lambda: analyze_source(source))
+    res = audit(strat, prices, config=AuditConfig(profile="quick"))
+    timed("report generation (HTML)", res.to_html)
+    timed("report generation (Markdown)", res.to_markdown)
+    timed(
+        "full audit, quick profile, 10y",
+        lambda: audit(strat, prices, config=AuditConfig(profile="quick")),
+        repeat=1,
     )
 
 

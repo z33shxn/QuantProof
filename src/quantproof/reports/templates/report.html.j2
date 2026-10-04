@@ -91,17 +91,38 @@ details summary { cursor: pointer; color: var(--ink-2); }
 .toolbar { float: right; }
 .toolbar button { font: inherit; font-size: 12px; background: var(--surface); color: var(--ink-2);
   border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+nav.toc ol { columns: 2 220px; padding-left: 20px; margin: 8px 0; font-size: 13.5px; }
+nav.toc a, footer a { color: var(--s1); }
+.narrative dt { font-weight: 600; color: var(--ink); margin-top: 8px; }
+.narrative dd { margin: 2px 0 0 0; color: var(--ink-2); }
+.usage { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; border: 1px solid currentColor; }
+.usage.live-decision { color: var(--critical); } .usage.label-or-analysis { color: var(--muted); }
+footer { max-width: 960px; margin: 0 auto; padding: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12.5px; }
+footer dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; }
+footer dt { font-weight: 600; } footer dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (max-width: 640px) { table { display: block; overflow-x: auto; } .counts div { min-width: 70px; } }
 @media print { .toolbar, .tooltip { display: none !important; } h2 { break-after: avoid; } }
 </style>
 </head>
 <body>
-<main>
-<div class="toolbar"><button type="button" id="theme-toggle">Toggle theme</button></div>
+<main id="top">
+<div class="toolbar" id="toolbar" hidden><button type="button" id="theme-toggle">Toggle theme</button></div>
+<header>
 <h1>QuantProof research audit</h1>
 <div class="meta">Strategy <code>{{ ov.strategy or "n/a" }}</code>{% if ov.evaluation_start %} · {{ ov.evaluation_start[:10] }} → {{ ov.evaluation_end[:10] }}{% endif %} · {{ ov.n_observations }} observations · QuantProof {{ version }} · generated {{ created_at }}</div>
+</header>
+<nav class="toc" aria-label="Contents"><ol>
+<li><a href="#verdict">Overall verdict</a></li><li><a href="#summary">Executive summary</a></li>
+<li><a href="#data-static">Data and static code</a></li><li><a href="#causality">Causality</a></li>
+<li><a href="#statistics">Statistics</a></li><li><a href="#validation">Validation</a></li>
+<li><a href="#execution">Execution</a></li><li><a href="#costs">Costs</a></li>
+<li><a href="#regimes">Regimes</a></li><li><a href="#sensitivity">Sensitivity</a></li>
+<li><a href="#reproducibility">Reproducibility</a></li><li><a href="#limitations">Limitations</a></li>
+<li><a href="#json">Machine-readable results</a></li>
+</ol></nav>
 
-<h2>1. Overall verdict</h2>
+<h2 id="verdict">1. Overall verdict</h2>
 <div class="card verdict">
   <span class="badge st-{{ status }}">{{ symbols[status] }} {{ status }}</span>
   <div class="counts">
@@ -112,13 +133,21 @@ details summary { cursor: pointer; color: var(--ink-2); }
   </div>
 </div>
 <h3>Why this verdict</h3>
-<ul>{% for r in summary.verdict_reasons %}<li>{{ r }}</li>{% endfor %}</ul>
+{% if narrative %}
+<dl class="narrative">
+<dt>Primary reason</dt><dd>{{ narrative.primary_reason }}</dd>
+{% if narrative.supporting_evidence %}<dt>Supporting evidence</dt><dd><ul>{% for e in narrative.supporting_evidence %}<li>{{ e }}</li>{% endfor %}</ul></dd>{% endif %}
+{% if narrative.recommendations %}<dt>Recommendations</dt><dd><ul>{% for e in narrative.recommendations %}<li>{{ e }}</li>{% endfor %}</ul></dd>{% endif %}
+{% if narrative.next_steps %}<dt>Next steps</dt><dd><ol>{% for e in narrative.next_steps %}<li>{{ e }}</li>{% endfor %}</ol></dd>{% endif %}
+</dl>
+{% endif %}
+<details><summary>All verdict reasons ({{ summary.verdict_reasons|length }})</summary><ul>{% for r in summary.verdict_reasons %}<li>{{ r }}</li>{% endfor %}</ul></details>
 <details><summary>Verdict rules</summary><ol>{% for r in summary.verdict_rules %}<li>{{ r }}</li>{% endfor %}</ol></details>
 
-<h2>2. Executive summary</h2>
+<h2 id="summary">2. Executive summary</h2>
 {% if ov.headline %}
 <table>
-<thead><tr><th>Scenario</th><th class="num">Sharpe</th><th class="num">CAGR</th><th class="num">Max drawdown</th><th class="num">Volatility</th></tr></thead>
+<thead><tr><th scope="col">Scenario</th><th scope="col" class="num">Sharpe</th><th scope="col" class="num">CAGR</th><th scope="col" class="num">Max drawdown</th><th scope="col" class="num">Volatility</th></tr></thead>
 <tbody>
 {% for key in ["headline", "realistic"] %}{% if ov[key] %}{% set b = ov[key] %}
 <tr><td>{{ b.label }}</td><td class="num">{{ b.sharpe|num(2) }}</td><td class="num">{{ b.cagr|pct }}</td><td class="num">{{ b.max_drawdown|pctplain(1) }}</td><td class="num">{{ b.volatility|pctplain(1) }}</td></tr>
@@ -132,18 +161,20 @@ details summary { cursor: pointer; color: var(--ink-2); }
 {% endif %}
 {% if issues %}
 <h3>Issues requiring attention</h3>
-<table><thead><tr><th>Status</th><th>Rule</th><th>Finding</th></tr></thead><tbody>
+<table><thead><tr><th scope="col">Status</th><th scope="col">Rule</th><th scope="col">Finding</th></tr></thead><tbody>
 {% for f in issues %}<tr><td class="st-{{ f.severity.value }}">{{ symbols[f.severity.value] }} {{ f.severity.value }}</td><td><code>{{ f.id }}</code></td><td>{{ f.title }}</td></tr>{% endfor %}
 </tbody></table>
 {% endif %}
 
-<h2>3. Data validation and static code findings</h2>
+<h2 id="data-static">3. Data validation and static code findings</h2>
 {% macro finding_block(f) %}
 <div class="finding {{ f.severity.value }}">
-  <div class="head"><span class="st-{{ f.severity.value }}">{{ symbols[f.severity.value] }} {{ f.severity.value }}</span> · <code>{{ f.id }}</code> · {{ f.title }}{% if f.confidence %} <span class="meta">(confidence: {{ f.confidence.value }})</span>{% endif %}</div>
+  <div class="head"><span class="st-{{ f.severity.value }}">{{ symbols[f.severity.value] }} {{ f.severity.value }}</span> · <code>{{ f.id }}</code> · {{ f.title }}{% if f.confidence %} <span class="meta">(analysis confidence: {{ f.confidence.value }})</span>{% endif %}{% if f.usage %} <span class="usage {{ f.usage.value }}">{{ f.usage.label }}</span>{% endif %}</div>
   {% if f.location and f.location.describe() %}<div class="loc">{{ f.location.describe() }}{% if f.location.snippet %} — <code>{{ f.location.snippet }}</code>{% endif %}</div>{% endif %}
   <p>{{ f.message }}</p>
   {% if f.is_issue and f.why_it_matters %}<p class="why"><b>Why it matters.</b> {{ f.why_it_matters }}</p>{% endif %}
+  {% if f.is_issue and f.impact %}<p class="why"><b>Potential impact.</b> {{ f.impact }}</p>{% endif %}
+  {% if f.is_issue and f.investigate %}<p class="why"><b>How to investigate.</b> {{ f.investigate }}</p>{% endif %}
   {% if f.is_issue and f.recommendation %}<p class="fix"><b>Recommendation.</b> {{ f.recommendation }}</p>{% endif %}
 </div>
 {% endmacro %}
@@ -160,24 +191,24 @@ details summary { cursor: pointer; color: var(--ink-2); }
 <h3>Static analysis</h3>
 {{ finding_list(by_cat.static) }}
 
-<h2>4. Causality test results</h2>
+<h2 id="causality">4. Causality test results</h2>
 {% set c = sections.causality %}
 {% if c %}
 <p>The strategy was re-run with data <em>after</em> each test timestamp perturbed ({{ c.config.schemes|join(", ") }}). Decisions at or before the timestamp must not change.
 {{ c.n_trials }} trials: <b>{{ c.n_pass }}</b> unchanged, <b>{{ c.n_fail }}</b> changed, {{ c.n_error }} errors. Deterministic: {{ c.deterministic }}. Control sensitivity: {{ c.control_sensitive }}.</p>
-<div class="scroll"><table><thead><tr><th>Decision time</th><th>Scheme</th><th>Result</th><th class="num">Changed decisions</th><th>First changed</th><th class="num">Max |Δ|</th></tr></thead><tbody>
+<div class="scroll"><table><thead><tr><th scope="col">Decision time</th><th scope="col">Scheme</th><th scope="col">Result</th><th scope="col" class="num">Changed decisions</th><th scope="col">First changed</th><th scope="col" class="num">Max |Δ|</th></tr></thead><tbody>
 {% for t in c.trials %}<tr><td>{{ t.timestamp[:19] }}</td><td>{{ t.scheme }}</td><td class="st-{{ 'FAIL' if t.status == 'fail' else ('PASS' if t.status == 'pass' else 'INFO') }}">{{ t.status }}</td><td class="num">{{ t.n_changed }}</td><td>{{ (t.first_changed or "")[:19] }}</td><td class="num">{{ t.max_abs_diff|num(4) }}</td></tr>{% endfor %}
 </tbody></table></div>
 {% endif %}
 {{ finding_list(by_cat.causality + by_cat.leakage) }}
 
-<h2>5. Statistical diagnostics</h2>
+<h2 id="statistics">5. Statistical diagnostics</h2>
 {% set st = sections.statistics %}
 {% if st %}
-<table><thead><tr><th>Statistic</th><th class="num">Value</th><th>Inputs and assumptions</th></tr></thead><tbody>
+<table><thead><tr><th scope="col">Statistic</th><th scope="col" class="num">Value</th><th scope="col">Inputs and assumptions</th></tr></thead><tbody>
 <tr><td>Sharpe ratio (annualized, net)</td><td class="num">{{ st.sharpe.sharpe_annualized|num(2) }}</td><td>n={{ st.sharpe.n_observations }}, periods/year={{ st.sharpe.periods_per_year|num(0) }}, rf={{ st.sharpe.risk_free_rate }}, s.e.={{ st.sharpe.standard_error_annualized|num(2) }}</td></tr>
 <tr><td>Probabilistic Sharpe Ratio</td><td class="num">{{ st.psr.psr|num(3) }}</td><td>benchmark SR={{ st.psr.benchmark_sharpe_annualized|num(2) }}, skew={{ st.psr.skewness|num(2) }}, kurtosis={{ st.psr.kurtosis|num(2) }}, z={{ st.psr.z_score|num(2) }}</td></tr>
-<tr><td>Deflated Sharpe Ratio</td><td class="num">{{ st.dsr.dsr|num(3) }}</td><td>trials={{ st.dsr.n_trials }}, E[max SR]={{ st.dsr.expected_max_sharpe_annualized|num(2) }} (annual), V[SR]={{ st.dsr.sharpe_variance|num(6) }} from {{ st.dsr.variance_source }}</td></tr>
+<tr><td>Deflated Sharpe Ratio</td><td class="num">{{ st.dsr.dsr|num(3) }}</td><td>trials={{ st.dsr.n_trials }} ({{ st.dsr.trials_source or "n/a" }}{% if st.dsr.effective_trials is not none %}; effective ≈ {{ st.dsr.effective_trials|num(1) }}{% endif %}), E[max SR]={{ st.dsr.expected_max_sharpe_annualized|num(2) }} (annual, {{ st.dsr.expected_max_method }}), V[SR]={{ st.dsr.sharpe_variance|num(6) }} from {{ st.dsr.variance_source }}</td></tr>
 <tr><td>Minimum track record length</td><td class="num">{{ st.min_track_record_length|num(0) }}</td><td>observations needed for PSR ≥ confidence</td></tr>
 {% if st.bootstrap_sharpe %}<tr><td>Bootstrap Sharpe {{ (st.bootstrap_sharpe.confidence * 100)|round|int }}% CI</td><td class="num">[{{ st.bootstrap_sharpe.ci_lower|num(2) }}, {{ st.bootstrap_sharpe.ci_upper|num(2) }}]</td><td>{{ st.bootstrap_sharpe.method }} bootstrap, block length {{ st.bootstrap_sharpe.block_length|num(1) }}, B={{ st.bootstrap_sharpe.n_boot }}, seed={{ st.bootstrap_sharpe.seed }}</td></tr>{% endif %}
 <tr><td>CAGR / max drawdown</td><td class="num">{{ st.cagr|pct }} / {{ st.max_drawdown|pctplain(1) }}</td><td>net of audit costs</td></tr>
@@ -186,21 +217,33 @@ details summary { cursor: pointer; color: var(--ink-2); }
 {% endif %}
 {{ finding_list(by_cat.statistics) }}
 
-<h2>6. Validation methodology</h2>
+<h2 id="validation">6. Validation methodology</h2>
 {% set v = sections.validation %}
 {% if v %}
 {% if v.n_configurations %}<p>{{ v.n_configurations }} parameter configurations evaluated on {{ v.n_observations }} observations (realistic net returns).</p>{% endif %}
 {% if v.walk_forward and v.walk_forward.folds %}
 <h3>Walk-forward ({{ "expanding" if v.walk_forward.expanding else "rolling" }} windows)</h3>
 <pre>{{ v.walk_forward.diagram }}</pre>
-<div class="scroll"><table><thead><tr><th>Fold</th>{% if v.walk_forward.folds[0].train %}<th>Train</th>{% endif %}<th>Test</th>{% if v.walk_forward.folds[0].selected %}<th>Selected</th><th class="num">IS Sharpe</th>{% endif %}<th class="num">OOS Sharpe</th></tr></thead><tbody>
+<div class="scroll"><table><thead><tr><th scope="col">Fold</th>{% if v.walk_forward.folds[0].train %}<th scope="col">Train</th>{% endif %}<th scope="col">Test</th>{% if v.walk_forward.folds[0].selected %}<th scope="col">Selected</th><th scope="col" class="num">IS Sharpe</th>{% endif %}<th scope="col" class="num">OOS Sharpe</th></tr></thead><tbody>
 {% for f in v.walk_forward.folds %}<tr><td>{{ f.fold }}</td>{% if f.train %}<td>{{ f.train|join(" → ") }}</td>{% endif %}<td>{{ f.test|join(" → ") }}</td>{% if f.selected %}<td><code>{{ f.selected }}</code></td><td class="num">{{ f.is_sharpe|num(2) }}</td>{% endif %}<td class="num">{{ f.oos_sharpe|num(2) }}</td></tr>{% endfor %}
 </tbody></table></div>
 {% if v.walk_forward.oos_sharpe is defined %}<p>Concatenated out-of-sample Sharpe: <b>{{ v.walk_forward.oos_sharpe|num(2) }}</b> vs mean in-sample {{ v.walk_forward.is_sharpe_mean|num(2) }}.</p>{% endif %}
 {% endif %}
+{% if v.oos_evidence %}{% set oe = v.oos_evidence %}
+<h3>Out-of-sample evidence</h3>
+<table><caption class="sr-only">Out-of-sample evidence</caption><tbody>
+<tr><th scope="row">Out-of-sample observations</th><td class="num">{{ oe.n_observations }}</td></tr>
+<tr><th scope="row">Concatenated OOS Sharpe</th><td class="num">{{ oe.oos_sharpe|num(2) }}</td></tr>
+<tr><th scope="row">Positive folds</th><td class="num">{{ oe.n_positive_folds }} of {{ oe.n_folds }}</td></tr>
+<tr><th scope="row">Fold Sharpe median / dispersion (std)</th><td class="num">{{ oe.fold_sharpe_median|num(2) }} / {{ oe.fold_sharpe_std|num(2) }}</td></tr>
+<tr><th scope="row">OOS / mean IS Sharpe</th><td class="num">{{ oe.is_to_oos_ratio|num(2) }}</td></tr>
+</tbody></table>
+{% if oe.weak_reasons %}<p>Criteria not met: {{ oe.weak_reasons|join("; ") }}.</p>{% else %}<p>All out-of-sample criteria met (no composite score is computed).</p>{% endif %}
+{% endif %}
 {% if v.pbo and v.pbo.pbo is defined %}
 <h3>Probability of Backtest Overfitting (CSCV)</h3>
 <p>PBO = <b>{{ v.pbo.pbo|num(2) }}</b> — S={{ v.pbo.n_partitions }} partitions, {{ v.pbo.n_combinations }} of {{ v.pbo.n_combinations_total }} combinations, N={{ v.pbo.n_strategies }}. Degradation slope (OOS on IS Sharpe) {{ v.pbo.degradation_slope|num(2) }}; probability of OOS loss {{ v.pbo.prob_oos_loss|num(2) }}. {{ v.pbo.interpretation }}</p>
+{% if v.pbo.notes %}<ul>{% for n in v.pbo.notes %}<li class="meta">{{ n }}</li>{% endfor %}</ul>{% endif %}
 {% if pbo_chart %}<div class="card">{{ pbo_chart|safe }}</div><p class="meta">Distribution of logits λ of the in-sample winner's out-of-sample rank; mass at λ ≤ 0 is the PBO.</p>{% endif %}
 {% endif %}
 {% if v.cpcv and v.cpcv.n_paths is defined %}
@@ -215,15 +258,15 @@ details summary { cursor: pointer; color: var(--ink-2); }
 {% endif %}
 {{ finding_list(by_cat.validation) }}
 
-<h2>7. Execution assumptions</h2>
+<h2 id="execution">7. Execution assumptions</h2>
 {% set ex = sections.execution %}
 {% if ex.scenarios %}
-<table><thead><tr><th>Scenario</th><th>Assumptions</th><th class="num">Sharpe</th><th class="num">CAGR</th><th class="num">Max DD</th></tr></thead><tbody>
+<table><thead><tr><th scope="col">Scenario</th><th scope="col">Assumptions</th><th scope="col" class="num">Sharpe</th><th scope="col" class="num">CAGR</th><th scope="col" class="num">Max DD</th></tr></thead><tbody>
 {% for name, sc in ex.scenarios.items() %}<tr><td>{{ name }}</td><td><code>{{ sc.assumptions|tojson }}</code></td><td class="num">{{ sc.metrics.sharpe|num(2) }}</td><td class="num">{{ sc.metrics.cagr|pct }}</td><td class="num">{{ sc.metrics.max_drawdown|pctplain(1) }}</td></tr>{% endfor %}
 </tbody></table>
 <h3>Execution-lag sensitivity (gross)</h3>
 <div class="grid2"><div class="card">{{ lag_chart|safe }}</div>
-<table><thead><tr><th>Lag</th><th class="num">Sharpe</th><th class="num">CAGR</th></tr></thead><tbody>
+<table><thead><tr><th scope="col">Lag</th><th scope="col" class="num">Sharpe</th><th scope="col" class="num">CAGR</th></tr></thead><tbody>
 {% for r in ex.lag_sensitivity %}<tr><td>{{ r.signal_lag }}</td><td class="num">{{ r.sharpe|num(2) }}</td><td class="num">{{ r.cagr|pct }}</td></tr>{% endfor %}
 </tbody></table></div>
 <p>Edge retained after a one-bar lag (gross): {{ ex.edge_retained_after_one_bar_lag|pctplain }}; headline edge retained under audit assumptions: {{ ex.headline_retained_under_audit|pctplain }}. Turnover: {{ ex.turnover.annualized|num(1) }}× equity per year; average holding period ≈ {{ ex.turnover.holding_period_bars|num(1) }} bars.</p>
@@ -231,30 +274,36 @@ details summary { cursor: pointer; color: var(--ink-2); }
 {% if ex.timing %}<p>Trade timing: {{ ex.timing.n_trades }} trades, {{ ex.timing.n_before_signal }} executed before the signal, {{ ex.timing.n_instantaneous }} with zero latency (median latency {{ ex.timing.median_latency }}).</p>{% endif %}
 {{ finding_list(by_cat.execution) }}
 
-<h2>8. Cost sensitivity</h2>
+<h2 id="costs">8. Cost sensitivity</h2>
 {% if ex.cost_sensitivity %}
 <div class="grid2"><div class="card">{{ cost_chart|safe }}</div>
-<table><thead><tr><th class="num">One-way cost (bps)</th><th class="num">Net Sharpe</th><th class="num">CAGR</th></tr></thead><tbody>
-{% for r in ex.cost_sensitivity %}<tr><td class="num">{{ r.one_way_cost_bps|num(1) }}</td><td class="num">{{ r.sharpe|num(2) }}</td><td class="num">{{ r.cagr|pct }}</td></tr>{% endfor %}
+<table><caption>Whole audit cost model scaled by each multiplier</caption><thead><tr><th scope="col" class="num">Cost multiplier</th><th scope="col" class="num">Linear one-way cost (bps)</th><th scope="col" class="num">Net Sharpe</th><th scope="col" class="num">CAGR</th></tr></thead><tbody>
+{% for r in ex.cost_sensitivity %}<tr><td class="num">{{ r.multiplier|num(1) }}×</td><td class="num">{{ r.linear_one_way_cost_bps|num(1) }}</td><td class="num">{{ r.sharpe|num(2) }}</td><td class="num">{{ r.cagr|pct }}</td></tr>{% endfor %}
 </tbody></table></div>
-<p>Break-even one-way cost: <b>{{ ex.break_even_one_way_cost_bps|num(1) }} bps</b>. Audit cost components (sum over the window, fraction of equity): {% for k, val in ex.cost_breakdown_total.items() %}{{ k }} {{ val|num(4) }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+<p>Mean return is erased at <b>{{ ex.break_even_cost_multiplier|num(2) }}×</b> the audit cost model (linear break-even ≈ {{ ex.break_even_one_way_cost_bps|num(1) }} bps one-way).</p>
+{% if ex.cost_attribution %}
+<h3>Cost attribution</h3>
+<table><caption>{{ ex.cost_attribution.units }}</caption><thead><tr><th scope="col">Item</th><th scope="col" class="num">Sum</th><th scope="col" class="num">Annualized</th></tr></thead><tbody>
+{% for r in ex.cost_attribution.rows %}<tr><th scope="row">{{ r.item }}</th><td class="num">{{ r.sum|num(4) }}</td><td class="num">{{ r.annualized|num(4) }}</td></tr>{% endfor %}
+</tbody></table>
+{% endif %}
 <ul>{% for l in ex.limitations %}<li>{{ l }}</li>{% endfor %}</ul>
 {% else %}<p class="meta">Not available for this audit mode.</p>{% endif %}
 
-<h2>9. Regime analysis</h2>
+<h2 id="regimes">9. Regime analysis</h2>
 {% set rg = sections.regimes %}
 {% if rg and rg.tables %}
 {% for name, table in rg.tables.items() %}
 <h3>{{ name|capitalize }} regimes</h3>
 <p class="meta">{{ rg.definitions[name] }}</p>
-<table><thead><tr><th>Regime</th><th class="num">Obs</th><th class="num">Time share</th><th class="num">Sharpe</th><th class="num">Ann. return</th><th class="num">Hit rate</th><th class="num">P&amp;L share</th></tr></thead><tbody>
+<table><thead><tr><th scope="col">Regime</th><th scope="col" class="num">Obs</th><th scope="col" class="num">Time share</th><th scope="col" class="num">Sharpe</th><th scope="col" class="num">Ann. return</th><th scope="col" class="num">Hit rate</th><th scope="col" class="num">P&amp;L share</th></tr></thead><tbody>
 {% for r in table %}<tr><td>{{ r.regime }}</td><td class="num">{{ r.n_observations }}</td><td class="num">{{ r.share_of_time|pctplain }}</td><td class="num">{% if r.sharpe is none %}<span class="meta">insufficient</span>{% else %}{{ r.sharpe|num(2) }}{% endif %}</td><td class="num">{{ r.mean_return_annualized|pct }}</td><td class="num">{{ r.hit_rate|pctplain }}</td><td class="num">{{ r.share_of_pnl|pctplain }}</td></tr>{% endfor %}
 </tbody></table>
 {% endfor %}
 {% endif %}
 {{ finding_list(by_cat.regime) }}
 
-<h2>10. Parameter sensitivity</h2>
+<h2 id="sensitivity">10. Parameter sensitivity</h2>
 {% set sn = sections.sensitivity %}
 {% if sn and sn.surface %}
 <p>Best configuration {{ sn.surface.best|tojson }} with Sharpe {{ sn.surface.best_value|num(2) }}; median of {{ sn.surface.n_neighbours }} neighbours {{ sn.surface.neighbour_median|num(2) }} (plateau ratio {{ sn.surface.plateau_ratio|num(2) }}, classification <b>{{ sn.surface.classification }}</b>).
@@ -263,23 +312,37 @@ In-sample vs out-of-sample ({{ sn.is_oos.split }}): Spearman ρ = {{ sn.is_oos.s
 {% else %}<p class="meta">No parameter grid supplied.</p>{% endif %}
 {{ finding_list(by_cat.sensitivity) }}
 
-<h2>11. Reproducibility manifest</h2>
+<h2 id="reproducibility">11. Reproducibility manifest</h2>
 <p>Content hash <code>{{ manifest.content_hash }}</code> — identical for runs with the same code, data, configuration, environment and seed.</p>
 <pre>{{ manifest_yaml }}</pre>
 
-<h2>12. Methodology and limitations</h2>
+<h2 id="limitations">12. Methodology and limitations</h2>
 <ul>{% for l in limitations %}<li>{{ l }}</li>{% endfor %}</ul>
 <p>Methods: AST static analysis (QP001–QP015); future-perturbation causality test; walk-forward, purged K-fold, CPCV (López de Prado, 2018); Probabilistic and Deflated Sharpe Ratios (Bailey &amp; López de Prado, 2012, 2014); PBO via CSCV (Bailey et al., 2017); White (2000) Reality Check and Hansen (2005) SPA; stationary bootstrap (Politis &amp; Romano, 1994) with automatic block length (Politis &amp; White, 2004).</p>
 
-<h2>13. Machine-readable results</h2>
-<p>The complete result is embedded below as JSON. <button type="button" id="download-json">Download JSON</button></p>
+<h2 id="json">13. Machine-readable results</h2>
+<p>The complete result is embedded in this file as JSON (element <code>#qp-result</code>). <button type="button" id="download-json" hidden>Download JSON</button></p>
+<noscript><p class="meta">JavaScript is disabled: open the file in a text editor to read the embedded JSON, or use <code>quantproof report result.json</code>.</p></noscript>
 <details><summary>Show JSON</summary><pre id="raw-json"></pre></details>
 <script type="application/json" id="qp-result">{{ result_json|safe }}</script>
 </main>
-<div class="tooltip" id="qp-tip"></div>
+<footer>
+<dl>
+<dt>QuantProof</dt><dd>{{ version }}</dd>
+<dt>Git commit</dt><dd>{{ footer.git_commit or "not in a Git repository" }}{% if footer.git_dirty %} (uncommitted changes){% endif %}</dd>
+<dt>Data hash</dt><dd>{{ footer.data_hash or "n/a" }}</dd>
+<dt>Config hash</dt><dd>{{ footer.config_hash or "n/a" }}</dd>
+<dt>Content hash</dt><dd>{{ manifest.content_hash or "n/a" }}</dd>
+<dt>Generated</dt><dd>{{ manifest.created_at or "n/a" }}</dd>
+</dl>
+<p><a href="#top">Back to top</a></p>
+</footer>
+<div class="tooltip" id="qp-tip" role="status" aria-live="polite"></div>
 <script>
 (function () {
   var root = document.documentElement;
+  document.getElementById("toolbar").hidden = false;
+  document.getElementById("download-json").hidden = false;
   document.getElementById("theme-toggle").addEventListener("click", function () {
     var dark = root.getAttribute("data-theme") === "dark" ||
       (!root.getAttribute("data-theme") && window.matchMedia("(prefers-color-scheme: dark)").matches);

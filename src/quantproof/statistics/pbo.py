@@ -21,6 +21,20 @@ Also reported: the regression slope of OOS on IS Sharpe of the selected
 configuration (performance degradation) and the probability that the selected
 configuration has a negative OOS Sharpe ("probability of loss").
 
+Null hypothesis and reading
+---------------------------
+PBO is not a p-value. Under pure noise (no configuration has skill) the IS winner's OOS
+rank is uniform, so PBO ≈ 0.5 for even ``N`` and slightly above 0.5 for odd ``N`` (ties at
+the median count as overfit). A genuine, persistent edge in one configuration drives PBO
+towards 0; anti-persistent performance (IS winners are OOS losers) drives it towards 1.
+PBO measures the *selection procedure* across the supplied configurations; it does not
+say whether the selected strategy is profitable, and it ignores configurations that were
+tried but not supplied.
+
+Small samples: each block's Sharpe is estimated from ``T / S`` observations. Below
+``MIN_BLOCK_OBS`` observations per block the estimate is noisy and a note is attached to
+the result; fewer than two observations per block is an error.
+
 Complexity: ``C(S, S/2)`` combinations, each ``O(N)`` after pre-computing block sums.
 ``S = 16`` gives 12,870 combinations; ``max_combinations`` sub-samples
 deterministically above a cap.
@@ -38,6 +52,8 @@ import pandas as pd
 from scipy.stats import rankdata
 
 from quantproof.errors import QuantProofInputError
+
+MIN_BLOCK_OBS = 20
 
 
 @dataclass(frozen=True)
@@ -60,6 +76,7 @@ class PBOResult:
     prob_oos_loss: float
     median_logit: float
     periods_per_year: float
+    notes: list[str] = field(default_factory=list)
 
     def to_dict(self, include_arrays: bool = True) -> dict[str, Any]:
         d = asdict(self)
@@ -118,6 +135,19 @@ def probability_of_backtest_overfitting(
         raise QuantProofInputError(
             f"Need at least {2 * n_partitions} observations for {n_partitions} partitions; got {t}."
         )
+    notes: list[str] = []
+    block_obs = t // n_partitions
+    if block_obs < MIN_BLOCK_OBS:
+        notes.append(
+            f"Each of the {n_partitions} blocks has only ~{block_obs} observations "
+            f"(< {MIN_BLOCK_OBS}); block Sharpe ratios are noisy and PBO is imprecise. Use fewer "
+            "partitions or more data."
+        )
+    if n % 2:
+        notes.append(
+            f"With an odd number of configurations ({n}) the median rank counts as overfit, "
+            "so PBO under pure noise is slightly above 0.5."
+        )
     if not np.isfinite(m).all():
         raise QuantProofInputError(
             "Returns matrix contains NaN/inf. Align the configurations on a common sample "
@@ -134,6 +164,10 @@ def probability_of_backtest_overfitting(
         rng = np.random.default_rng(seed)
         chosen = np.sort(rng.choice(total, size=max_combinations, replace=False))
         combos = [all_combos[i] for i in chosen]
+        notes.append(
+            f"{max_combinations} of {total} combinations were sampled (seed {seed}); PBO is a "
+            "Monte Carlo estimate of the full CSCV value."
+        )
     else:
         combos = all_combos
     ind = np.zeros((len(combos), n_partitions))
@@ -185,4 +219,5 @@ def probability_of_backtest_overfitting(
         prob_oos_loss=float(np.mean(oos_sel[ok] < 0)) if ok.any() else float("nan"),
         median_logit=float(np.median(logits)),
         periods_per_year=periods_per_year,
+        notes=notes,
     )

@@ -10,14 +10,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantproof.audit.execution.analyzer import analyze_execution
-from quantproof.audit.severity import Severity
-from quantproof.audit.static import analyze_source
-from quantproof.audit.statistical.selection import analyze_selection
+from quantproof.analyzers.execution.analyzer import analyze_execution
+from quantproof.analyzers.static import analyze_source
+from quantproof.analyzers.statistical.selection import analyze_selection
 from quantproof.config import ExecutionConfig, StatisticsConfig, ValidationConfig
 from quantproof.data import load_frame, validate_data
 from quantproof.execution import TransactionCostModel, simulate
 from quantproof.execution.slippage import SizeSlippage
+from quantproof.severity import Severity
 from quantproof.validation import PurgedKFold
 from quantproof.validation.temporal import label_intervals
 

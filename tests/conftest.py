@@ -28,6 +28,6 @@ def rng() -> np.random.Generator:
 
 @pytest.fixture
 def quick_config() -> AuditConfig:
-    cfg = AuditConfig(quick=True)
+    cfg = AuditConfig(profile="quick")
     cfg.statistics.n_bootstrap = 200
     return cfg

@@ -7,7 +7,9 @@ from quantproof.execution.costs import (
     FixedPerOrderCommission,
     PercentageCommission,
     PerShareCommission,
+    ScaledCost,
     TransactionCostModel,
+    TransactionTax,
 )
 from quantproof.execution.fills import (
     FillModel,
@@ -46,11 +48,13 @@ __all__ = [
     "PerShareCommission",
     "PercentageCommission",
     "ProviderCost",
+    "ScaledCost",
     "SeriesSpread",
     "SimulationResult",
     "SizeSlippage",
     "SquareRootImpact",
     "TransactionCostModel",
+    "TransactionTax",
     "VolatilitySlippage",
     "analyze_execution_timing",
     "india_nse_provider",

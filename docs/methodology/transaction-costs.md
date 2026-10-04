@@ -43,8 +43,53 @@ lagged one bar (the first bar has no history and is treated as zero participatio
 estimates never use future data. `roll_spread(prices)` estimates an effective spread
 (Roll 1984) from negative serial covariance of price changes.
 
-`TransactionCostModel.from_bps(commission_bps, spread_bps, slippage_bps, impact_coefficient)`
-builds the common linear model.
+| `TransactionTax(b, side)` | `|Δw| · b/10⁴` on buys, sells or both (stamp duty, FTT) |
+
+`TransactionCostModel.from_bps(commission_bps, spread_bps, slippage_bps,
+impact_coefficient, tax_bps)` builds the common model. Composition is explicit:
+
+```python
+from quantproof.execution import (
+    BpsCommission,
+    FixedSlippage,
+    FixedSpread,
+    SquareRootImpact,
+    TransactionCostModel,
+    TransactionTax,
+)
+
+model = TransactionCostModel.compose(
+    commission=BpsCommission(1),
+    spread=FixedSpread(4),
+    slippage=FixedSlippage(2),
+    impact=SquareRootImpact(0.1),  # None disables a component
+    taxes=TransactionTax(5, side="buy"),
+)
+model.without("impact")  # drop a component
+model.scaled(2.0)  # every component x2 (sensitivity analysis)
+```
+
+### Execution semantics
+
+| Semantics | How QuantProof treats it |
+|---|---|
+| close-to-close (`fill="close"`, lag L) | simulated exactly: decision at close *t*, fill at close *t+L* |
+| next bar (`fill="next_close"`) | close fill with lag ≥ 1 |
+| next open (`fill="next_open"`) | simulated from open and close (overnight + intraday legs) |
+| delayed | any lag ≥ 1 |
+| intrabar, event-driven, VWAP, TWAP | **not simulated**: declaring them gives QP-EXEC-006 (WARN, "not testable from bars") and the audit uses its own bar-level model |
+
+Static analysis cannot always tell which semantics a vectorized backtest implies: an
+un-lagged signal times same-bar returns is a FAIL only when both are close-based
+(QP010); when the price sources cannot be traced QuantProof says "Execution semantics
+could not be determined automatically" (WARN) instead of guessing.
+
+### Portfolios
+
+For panel data `simulate()` runs the fill model per symbol and sums gross returns and
+costs (`Σ_i w_i,t−1 · r_i,t` for close fills, exact; next-open fills are a first-order
+approximation that ignores cross-symbol rebalancing within the bar). Weights are
+fractions of total equity.
 
 ### Audit scenarios
 
@@ -54,20 +99,32 @@ builds the common linear model.
 | declared | the strategy's `EXECUTION` dict |
 | realistic | `ExecutionConfig`: lag 1, close fills, 1 bp commission, 2 bp spread, 2 bp slippage by default |
 
-The report adds a lag-sensitivity table (lags 0, 1, 2, 5, next open), a cost-sensitivity
-table (one-way 0–50 bps), the **break-even one-way cost** `mean(gross)/mean(|Δw|)·10⁴`,
-and turnover. Verdict rules:
+The report adds:
+
+- a lag-sensitivity table (lags 0, 1, 2, 5, next open);
+- **cost attribution**: gross return, each cost component (commission, spread, slippage,
+  impact, taxes) and net return, as sums of per-bar returns and annualized means — the
+  components add up exactly to gross − net;
+- a **cost-multiplier table** (0×, 0.5×, 1×, 1.5×, 2×, 3× the whole audit cost model by
+  default; `execution.cost_multipliers`). Impact is scaled as a cost *level*, not by
+  changing trade size;
+- the **break-even multiplier** `mean(gross) / mean(cost)` and the linear break-even
+  one-way cost `mean(gross)/mean(|Δw|)·10⁴`;
+- turnover.
+
+Verdict rules:
 
 - **QP-EXEC-001 FAIL** if the declared assumptions are optimistic (lag 0, zero costs, or
   nothing declared), the headline Sharpe is ≥ 0.5, and less than 25 % of it survives under
   audit assumptions. WARN if lag 0 is declared but the edge survives.
 - **QP-EXEC-002** WARN if no non-zero cost is declared; INFO if declared costs are below
   the auditor's.
-- **QP-EXEC-003** WARN if net Sharpe ≤ 0 while gross > 0, or break-even cost < 2× the
-  realistic one-way cost.
+- **QP-EXEC-003** WARN if net Sharpe ≤ 0 while gross > 0, or the break-even multiplier is
+  below 2 (doubling the audit cost model would erase the mean return).
 - **QP-EXEC-004** WARN if costs consume ≥ 50 % of gross return.
 - **QP-EXEC-005** (results mode, trade ledger with `signal_time`/`execution_time`): FAIL if
   any trade executes before its signal, WARN if more than half execute with zero latency.
+- **QP-EXEC-006** WARN if the declared execution style cannot be simulated from bars.
 
 ### Turnover
 
@@ -106,7 +163,7 @@ partial fills or queue position; limit orders fill when touched.
 ## Example
 
 `examples/unrealistic_execution` (one-day reversal, declared lag 0 and zero costs): naive
-Sharpe 1.64 → gross at lag 1 0.53 → realistic net 0.10. Break-even cost ≈ 4.9 bps one-way
+Sharpe 1.64 → gross at lag 1 0.53 → realistic net 0.10. Break-even at ≈ 1.22× the audit cost model (linear break-even ≈ 4.9 bps one-way)
 against an audit assumption of 4 bps; turnover ≈ 273× equity per year. QP-EXEC-001 FAIL.
 
 ## Limitations

@@ -8,9 +8,15 @@ from pathlib import Path
 
 import pytest
 
-from quantproof.audit.severity import Severity
-from quantproof.audit.static import RULES, analyze_file, analyze_path, analyze_source, list_rules
+from quantproof.analyzers.static import (
+    RULES,
+    analyze_file,
+    analyze_path,
+    analyze_source,
+    list_rules,
+)
 from quantproof.config import StaticConfig
+from quantproof.severity import Severity
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -29,7 +35,7 @@ EXPECTED = {
     "qp012_future_feature.py": ("QP012", Severity.FAIL),
     "qp013_large_grid.py": ("QP013", Severity.WARN),
     "qp014_no_oos.py": ("QP014", Severity.WARN),
-    "qp015_backfill.py": ("QP015", Severity.WARN),
+    "qp015_backfill.py": ("QP015", Severity.FAIL),
 }
 
 
@@ -192,7 +198,10 @@ def test_declared_execution_lag_zero_and_zero_costs():
 def test_qp010_skips_aligned_alternatives():
     assert "QP010" not in issues("pnl = signal * returns.shift(-1)\n")
     assert "QP010" not in issues("pnl = position.shift(2) * returns\n")
-    assert issues("pnl = df['pos'].mul(df['ret'])\n")["QP010"] == [Severity.FAIL]
+    # Provenance unknown: execution semantics cannot be determined → WARN, not FAIL.
+    assert issues("pnl = df['pos'].mul(df['ret'])\n")["QP010"] == [Severity.WARN]
+    traced = "df['ret'] = df['close'].pct_change()\ndf['pos'] = df['close'] > 1\npnl = df['pos'].mul(df['ret'])\n"
+    assert issues(traced)["QP010"] == [Severity.FAIL]
 
 
 def test_qp013_threshold_is_configurable():
@@ -225,7 +234,7 @@ def test_inline_suppression_turns_issue_into_info():
     src_all = "s = df['close'].rolling(5, center=True).mean()  # quantproof: ignore\n"
     assert issues(src_all)["QP002"] == [Severity.INFO]
     other = "s = df['close'].rolling(5, center=True).mean()  # quantproof: ignore[QP001]\n"
-    assert issues(other)["QP002"] == [Severity.FAIL]
+    assert issues(other)["QP002"] == [Severity.WARN]  # not traced to a decision: WARN
 
 
 def test_syntax_error_is_reported_not_raised():

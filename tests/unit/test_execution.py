@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import itertools
 
 import numpy as np
 import pandas as pd
@@ -249,3 +250,120 @@ def test_roll_spread():
     est = roll_spread(bounce)
     assert est == pytest.approx(0.002, rel=0.25)
     assert np.isnan(roll_spread([1.0, 2.0]))  # too short to estimate
+
+
+def test_transaction_tax_sides():
+    from quantproof.execution import TransactionTax
+
+    c = ctx([0.5, -0.25, 0.0])
+    np.testing.assert_allclose(TransactionTax(10).cost(c), [5e-4, 2.5e-4, 0])
+    np.testing.assert_allclose(TransactionTax(10, side="buy").cost(c), [5e-4, 0, 0])
+    np.testing.assert_allclose(TransactionTax(10, side="sell").cost(c), [0, 2.5e-4, 0])
+    with pytest.raises(QuantProofInputError):
+        TransactionTax(10, side="short")
+
+
+def test_cost_model_compose_without_and_scaled():
+    from quantproof.execution import TransactionTax
+
+    model = TransactionCostModel.compose(
+        commission=BpsCommission(1),
+        spread=FixedSpread(4),
+        slippage=None,
+        taxes=TransactionTax(3),
+    )
+    assert model.names == ["commission", "spread", "taxes"]
+    c = ctx([1.0, 0.0, -0.5])
+    base = model.total(c)
+    np.testing.assert_allclose(base, [6e-4, 0, 3e-4])
+    np.testing.assert_allclose(model.scaled(2.5).total(c), 2.5 * base)
+    np.testing.assert_allclose(model.scaled(0).total(c), 0.0)
+    assert model.without("spread", "taxes").names == ["commission"]
+    assert model.scaled(2).describe()[0]["multiplier"] == 2.0
+    with pytest.raises(QuantProofInputError):
+        model.scaled(-1)
+
+
+def test_execution_section_attribution_and_multipliers(prices):
+    from quantproof.analyzers.execution.analyzer import analyze_execution
+    from quantproof.config import ExecutionConfig
+
+    signals = np.sign(prices["close"].pct_change(10)).fillna(0.0)
+    cfg = ExecutionConfig(tax_bps=1.0, impact_coefficient=0.1)
+    section, _findings, sim = analyze_execution(prices, signals, cfg, declared=None)
+    rows = section["cost_attribution"]["rows"]
+    assert [r["item"] for r in rows] == [
+        "gross",
+        "commission",
+        "spread",
+        "slippage",
+        "impact",
+        "taxes",
+        "net",
+    ]
+    assert sum(r["sum"] for r in rows[:-1]) == pytest.approx(rows[-1]["sum"], abs=1e-12)
+    mults = [r["multiplier"] for r in section["cost_sensitivity"]]
+    assert mults == [0.0, 0.5, 1.0, 1.5, 2.0, 3.0]
+    sharpe = [r["sharpe"] for r in section["cost_sensitivity"]]
+    assert all(a >= b for a, b in itertools.pairwise(sharpe))
+    zero = section["cost_sensitivity"][0]
+    assert zero["sharpe"] == pytest.approx(
+        section["scenarios"]["realistic"]["gross_metrics"]["sharpe"]
+    )
+    one = section["cost_sensitivity"][2]
+    assert one["sharpe"] == pytest.approx(section["scenarios"]["realistic"]["metrics"]["sharpe"])
+    mean_gross = sim.gross_returns.mean()
+    if mean_gross > 0:
+        assert section["break_even_cost_multiplier"] == pytest.approx(mean_gross / sim.costs.mean())
+    else:  # undefined: no cost level makes a non-positive gross return break even
+        assert np.isnan(section["break_even_cost_multiplier"])
+        assert np.isnan(section["break_even_one_way_cost_bps"])
+    assert section["semantics"]["audit"].startswith("close-to-close")
+
+
+@pytest.mark.parametrize("fill", ["intrabar", "event", "VWAP", "twap"])
+def test_untestable_declared_fills_warn_instead_of_simulating(prices, fill):
+    from quantproof.analyzers.execution.analyzer import analyze_execution
+    from quantproof.config import ExecutionConfig
+
+    signals = np.sign(prices["close"].pct_change(10)).fillna(0.0)
+    section, findings, _ = analyze_execution(
+        prices, signals, ExecutionConfig(), declared={"fill": fill, "signal_lag": 1}
+    )
+    by_id = {f.id: f for f in findings}
+    assert by_id["QP-EXEC-006"].severity.value == "WARN"
+    assert "declared" not in section["scenarios"]
+    assert section["semantics"]["declared_simulated"] is False
+
+
+def test_unknown_declared_fill_is_an_input_error(prices):
+    from quantproof.analyzers.execution.analyzer import analyze_execution
+    from quantproof.config import ExecutionConfig
+
+    with pytest.raises(QuantProofInputError, match="not recognised"):
+        analyze_execution(
+            prices, prices["close"] * 0, ExecutionConfig(), declared={"fill": "teleport"}
+        )
+
+
+def test_cost_multipliers_must_be_non_negative():
+    from pydantic import ValidationError
+
+    from quantproof.config import ExecutionConfig
+
+    with pytest.raises(ValidationError):
+        ExecutionConfig(cost_multipliers=[1.0, -0.5])
+
+
+def test_break_even_for_profitable_signal(prices):
+    from quantproof.analyzers.execution.analyzer import analyze_execution
+    from quantproof.config import ExecutionConfig
+
+    # Perfect foresight at lag 1 (decision at t uses r_{t+2}) has a large positive gross mean.
+    r = prices["close"].pct_change()
+    signals = np.sign(r.shift(-2)).fillna(0.0)
+    section, _, sim = analyze_execution(prices, signals, ExecutionConfig(), declared=None)
+    assert sim.gross_returns.mean() > 0
+    assert section["break_even_cost_multiplier"] == pytest.approx(
+        sim.gross_returns.mean() / sim.costs.mean()
+    )

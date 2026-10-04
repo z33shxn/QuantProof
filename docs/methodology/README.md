@@ -22,3 +22,5 @@ stated otherwise.
 | [sensitivity.md](sensitivity.md) | Parameter-surface robustness |
 | [reproducibility.md](reproducibility.md) | Hashing, manifest, determinism |
 | [verdict.md](verdict.md) | How findings become PASS / WARN / FAIL |
+| [multi-asset.md](multi-asset.md) | Panel data: input format, strategy contract, per-check behaviour |
+| [limitations.md](limitations.md) | What QuantProof cannot detect or guarantee |

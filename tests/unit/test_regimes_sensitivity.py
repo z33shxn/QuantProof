@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantproof.audit.severity import Severity
 from quantproof.config import RegimeConfig
 from quantproof.errors import QuantProofInputError
 from quantproof.regimes import (
@@ -23,6 +22,7 @@ from quantproof.sensitivity import (
     sensitivity_findings,
     surface_matrix,
 )
+from quantproof.severity import Severity
 
 
 def test_drawdown_series_and_labels():

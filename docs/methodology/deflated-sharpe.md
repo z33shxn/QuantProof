@@ -19,6 +19,39 @@ DSR = PSR(SR0)
 `SR0` is the expected maximum Sharpe ratio of *N* independent zero-skill trials with
 cross-trial Sharpe variance *V* (`expected_max_sharpe`). All quantities are per-period.
 
+**Null hypothesis.** H0: the selected strategy's true Sharpe ratio is no larger than the
+expected maximum of *N* zero-skill trials. DSR is the probability (under the PSR
+approximation) that the observed Sharpe exceeds that hurdle.
+
+**Expected maximum — approximation vs exact.** `expected_max_sharpe(N, V,
+method="approximation")` is the paper's closed form; `method="exact"` integrates
+`E[max Z_i] = ∫ x·N·φ(x)·Φ(x)^(N−1) dx` numerically. The audit and the CLI use the exact
+value and report `expected_max_method`. Relative error of the closed form (tested against
+`1/√π` for N = 2, `3/(2√π)` for N = 3, and Monte Carlo):
+
+| N | 2 | 10 | 100 | 1000 |
+|---|---|---|---|---|
+| approximation / exact − 1 | −7.9 % | +2.3 % | +0.9 % | +0.4 % |
+
+## What "trials" means
+
+*N* is the number of strategy variants whose results could have been selected: every
+parameter set, feature set, universe, rule change or model that was backtested,
+**including ones that were discarded**. The audit reports, in `statistics.trials`:
+
+- `declared` / `used_for_dsr` — the count used;
+- `source` — `statistics.trials (declared in config)`, `PARAM_GRID size`,
+  `columns of trial_returns`, or `not declared (assumed 1)`;
+- `effective_estimate` — when trial returns are available, the Li & Ji (2005)
+  eigenvalue estimate of the number of effectively independent trials. It is reported
+  for context; the DSR still uses the declared count (correlated trials make the declared
+  count conservative). The estimate credits fractional eigenvalue parts, so it is a rough
+  upper bound on the search's dimension, not an exact correction.
+
+Entering `trials=5000` does **not** produce a perfect multiple-testing correction: it makes
+the hurdle consistent with 5000 independent tries, and is only as honest as the number
+entered. QuantProof cannot see trials that were never declared.
+
 Choice of *V*, recorded in the result as `variance_source`:
 
 1. `explicit` — passed by the user;
@@ -35,19 +68,23 @@ that DSR equals PSR and understates selection bias.
 
 - Trials are independent. Correlated variants (neighbouring parameters) make the raw count
   conservative — the hurdle is too high. The paper suggests clustering to estimate the
-  effective number of trials; QuantProof uses the count you declare.
+  effective number of trials; QuantProof uses the count you declare and reports the
+  Li & Ji estimate alongside it.
 - The PSR assumptions apply.
 
 ## Example
 
-`expected_max_sharpe(N, 1)` matches the Monte Carlo mean of the maximum of N standard
-normals within 3 % for N = 10, 100, 1000 (tested). Selecting the best of 200 noise
+The exact expected maximum matches the Monte Carlo mean of the maximum of 50 standard
+normals within four standard errors, and the closed form's documented error is asserted
+(tested). Selecting the best of 200 noise
 strategies yields DSR > 0.95 in at most ~5 % of simulations (tested).
 For `examples/overfit_strategy` (240 trials) the observed net Sharpe of 0.43 is below the
 expected maximum of 0.82, giving DSR ≈ 0.17.
 
 ## Limitations
 
+DSR does **not** show that the strategy will be profitable, that its edge is economically
+meaningful after costs, or that the declared trial count is complete.
 DSR corrects only for the trials you report. Undisclosed exploration (other datasets,
 features, ideas discarded early) is invisible to it.
 

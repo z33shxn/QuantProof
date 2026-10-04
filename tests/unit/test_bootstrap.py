@@ -113,3 +113,27 @@ def test_bootstrap_validates_inputs():
 def test_constant_series_gives_nan_interval():
     res = bootstrap_sharpe([0.01] * 50, n_boot=100)
     assert np.isnan(res.ci_lower) and np.isnan(res.estimate)
+
+
+@pytest.mark.parametrize(
+    ("seed", "phi", "stationary", "circular"),
+    [
+        # Reference values computed with arch 8.0.0 `arch.bootstrap.optimal_block_length`
+        # (Politis & White 2004 with the Patton, Politis & White 2009 correction) on the
+        # same AR(1) series. arch is not a dependency; the values are recorded here.
+        (1, 0.5, 14.062282, 16.097295),
+        (2, -0.3, 10.353872, 11.852225),
+        (3, 0.9, 40.905134, 46.824689),
+    ],
+)
+def test_block_length_matches_arch_reference(seed, phi, stationary, circular):
+    from quantproof.statistics.bootstrap import optimal_block_length
+
+    rng = np.random.default_rng(seed)
+    e = rng.standard_normal(2000)
+    x = np.zeros(2000)
+    for t in range(1, 2000):
+        x[t] = phi * x[t - 1] + e[t]
+    out = optimal_block_length(x)
+    assert out["stationary"] == pytest.approx(stationary, abs=1e-5)
+    assert out["circular"] == pytest.approx(circular, abs=1e-5)

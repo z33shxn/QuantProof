@@ -6,15 +6,15 @@ import math
 from importlib import resources
 from typing import TYPE_CHECKING, Any
 
-from jinja2 import Environment, select_autoescape
+from jinja2 import Environment, Undefined, select_autoescape
 
-from quantproof.audit.models import Category
 from quantproof.experiments.manifest import manifest_to_yaml
 from quantproof.reports.charts import bar_chart, heatmap, histogram, line_chart
 from quantproof.reports.json import render_json
+from quantproof.results import Category
 
 if TYPE_CHECKING:
-    from quantproof.audit.models import AuditResult
+    from quantproof.results import AuditResult
 
 SYMBOLS = {"PASS": "✓", "INFO": "·", "WARN": "⚠", "FAIL": "✗"}
 SECTION_KEYS = (
@@ -33,6 +33,8 @@ SECTION_KEYS = (
 
 
 def _num(v: Any, digits: int = 2) -> str:
+    if isinstance(v, Undefined):
+        return "n/a"
     try:
         f = float(v)
     except (TypeError, ValueError):
@@ -43,6 +45,8 @@ def _num(v: Any, digits: int = 2) -> str:
 
 
 def _pct(v: Any) -> str:
+    if isinstance(v, Undefined):
+        return "n/a"
     try:
         f = float(v)
     except (TypeError, ValueError):
@@ -51,6 +55,8 @@ def _pct(v: Any) -> str:
 
 
 def _pct_plain(v: Any, digits: int = 0) -> str:
+    if isinstance(v, Undefined):
+        return "n/a"
     try:
         f = float(v)
     except (TypeError, ValueError):
@@ -115,9 +121,9 @@ def render_html(result: AuditResult) -> str:
     if ex.get("cost_sensitivity"):
         rows = ex["cost_sensitivity"]
         cost_chart = bar_chart(
-            [f"{r['one_way_cost_bps']:g}" for r in rows],
+            [f"{r['multiplier']:g}x" for r in rows],
             [r.get("sharpe") for r in rows],
-            y_label="Net Sharpe by cost (bps)",
+            y_label="Net Sharpe by cost multiplier",
         )
     pbo = s.get("validation", {}).get("pbo", {})
     pbo_chart = (
@@ -135,7 +141,20 @@ def render_html(result: AuditResult) -> str:
         by_cat.setdefault(f.category, []).append(f)
     issues = [f for f in result.findings if f.is_issue]
     issues.sort(key=lambda f: -f.severity.rank)
-    result_json = render_json(result, indent=0).replace("</", "<\\/")
+    # "<" as \u003c keeps the embedded JSON valid and makes "</script>" / "<!--" impossible.
+    result_json = render_json(result, indent=0).replace("<", "\\u003c")
+    m = result.manifest or {}
+    git = (m.get("experiment") or {}).get("git") or {}
+    data = m.get("data") or {}
+    footer = {
+        "git_commit": git.get("commit"),
+        "git_dirty": git.get("dirty"),
+        "data_hash": data.get("content_sha256")
+        or data.get("file_sha256")
+        or data.get("returns_sha256")
+        or (m.get("fingerprints") or {}).get("data"),
+        "config_hash": (m.get("configuration") or {}).get("sha256"),
+    }
     return (
         _env()
         .from_string(_template())
@@ -144,6 +163,8 @@ def render_html(result: AuditResult) -> str:
             created_at=result.manifest.get("created_at", "")[:19],
             status=result.status.value,
             summary=result.summary,
+            narrative=result.narrative,
+            footer=footer,
             symbols=SYMBOLS,
             ov=ov,
             sections=s,

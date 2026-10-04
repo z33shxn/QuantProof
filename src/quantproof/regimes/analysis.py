@@ -8,11 +8,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from quantproof.audit.models import Category, Finding
-from quantproof.audit.severity import Confidence, Severity
 from quantproof.config import RegimeConfig
 from quantproof.regimes.drawdown import drawdown_regimes, trend_regimes
 from quantproof.regimes.volatility import volatility_regimes
+from quantproof.results import Category, Finding
+from quantproof.severity import Confidence, Severity
 from quantproof.statistics.sharpe import sharpe_ratio
 
 
