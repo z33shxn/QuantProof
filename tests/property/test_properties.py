@@ -6,7 +6,7 @@ import math
 
 import numpy as np
 import pandas as pd
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
 
@@ -31,6 +31,10 @@ returns_arrays = arrays(np.float64, st.integers(3, 200), elements=finite)
 
 @given(returns_arrays, st.floats(0.01, 100))
 def test_sharpe_scale_invariant(r, k):
+    # Scaling a subnormal value can round it to zero (5e-324 * 0.5 == 0.0), which changes
+    # the data itself; invariance is only claimed while scaling is exact enough.
+    tiny = np.finfo(np.float64).tiny
+    assume(np.all((r == 0) | ((np.abs(r) >= tiny) & (np.abs(r * k) >= tiny))))
     a = sharpe_ratio(r)
     b = sharpe_ratio(r * k)
     if math.isnan(a):
