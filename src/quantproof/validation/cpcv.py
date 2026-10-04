@@ -24,8 +24,14 @@ import numpy as np
 import pandas as pd
 
 from quantproof.errors import QuantProofInputError
-from quantproof.validation.embargo import apply_embargo
-from quantproof.validation.temporal import label_intervals, num_samples, purge
+from quantproof.validation.embargo import EmbargoSpec, apply_embargo
+from quantproof.validation.temporal import (
+    label_intervals,
+    num_samples,
+    purge,
+    require_training_data,
+    resolve_event_end,
+)
 
 
 class CPCV:
@@ -43,7 +49,9 @@ class CPCV:
         n_groups: int = 6,
         n_test_groups: int = 2,
         *,
-        embargo: float | int = 0.0,
+        embargo: EmbargoSpec = 0.0,
+        event_end: pd.Series | None = None,
+        event_start: pd.Series | None = None,
         t1: pd.Series | None = None,
         label_horizon: int = 0,
     ) -> None:
@@ -54,8 +62,14 @@ class CPCV:
         self.n_groups = n_groups
         self.n_test_groups = n_test_groups
         self.embargo = embargo
-        self.t1 = t1
+        self.event_end = resolve_event_end(event_end, t1)
+        self.event_start = event_start
         self.label_horizon = label_horizon
+
+    @property
+    def t1(self) -> pd.Series | None:
+        """Alias of :attr:`event_end`."""
+        return self.event_end
 
     @property
     def n_splits(self) -> int:
@@ -87,18 +101,27 @@ class CPCV:
     ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
         """Yield ``(train_positions, test_positions)`` for each group combination."""
         n = num_samples(X)
-        index = (
-            X.index if isinstance(X, (pd.DataFrame, pd.Series)) and self.t1 is not None else None
+        timed = self.event_end is not None
+        index = X.index if isinstance(X, (pd.DataFrame, pd.Series)) and timed else None
+        start, end = label_intervals(
+            n, self.event_end, self.label_horizon, index=index, event_start=self.event_start
         )
-        start, end = label_intervals(n, self.t1, self.label_horizon, index=index)
         grp = self.groups(X)
         positions = np.arange(n)
-        for combo in self.group_combinations():
+        for s, combo in enumerate(self.group_combinations()):
             test = np.concatenate([grp[g] for g in combo])
             train = np.setdiff1d(positions, test, assume_unique=True)
             train = purge(train, test, start, end)
-            train = apply_embargo(train, test, n, self.embargo, label_start=start, label_end=end)
-            yield train, test
+            train = apply_embargo(
+                train,
+                test,
+                n,
+                self.embargo,
+                label_start=start,
+                label_end=end,
+                time_based=timed,
+            )
+            yield require_training_data(train, s, "CPCV"), test
 
     def paths(self) -> list[list[tuple[int, int]]]:
         """Backtest paths as lists of ``(group, split_index)`` pairs.
