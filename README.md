@@ -87,8 +87,10 @@ and [good-research-workflow.md](docs/examples/good-research-workflow.md)
 Python 3.10–3.13. Not yet on PyPI; install from GitHub:
 
 ```bash
-pip install "quantproof[all] @ git+https://github.com/z33shxn/QuantProof.git"
+pip install "quantproof[all] @ git+https://github.com/z33shxn/QuantProof.git@v0.1.0"
 ```
+
+(drop `@v0.1.0` to install the latest `main`)
 
 or from a clone (needed for the bundled examples):
 

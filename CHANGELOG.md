@@ -6,9 +6,48 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.1.0] — release candidate (not yet tagged or published)
+## [0.1.0] — 2026-10-04
 
-The initial version, followed by a second, deeper hardening review before release.
+First public release. The API may still change before 1.0. Not published to PyPI; install
+from the `v0.1.0` tag on GitHub.
+
+### Capabilities in this release
+
+- **Audit engine**: FAIL / WARN / PASS verdict derived from findings (no composite
+  score); strategy mode, results mode and static-only mode; `quick` / `standard` /
+  `strict` profiles.
+- **Static research audit**: AST analysis with rules QP000–QP015 at three documented
+  analysis levels; usage-aware severities; inline suppression. Heuristic.
+- **Data validation**: rules QP-DATA-001…015, including per-symbol checks for panels.
+- **Runtime causality testing**: future-perturbation test (additive, multiplicative,
+  permutation, replacement, extreme) with determinism and sensitivity controls, plus
+  value-level leakage diagnostics (QP-LEAK-001…003).
+- **Temporal validation**: walk-forward, purging (bar- and event-time), embargo (bars or
+  durations), purged K-fold, combinatorial purged cross-validation (CPCV) with path
+  assembly.
+- **Statistical diagnostics**: Sharpe with non-normal standard error, PSR, MinTRL, DSR with
+  trial provenance and an effective-trials estimate, PBO via CSCV, White's Reality Check,
+  Hansen's SPA, p-value adjustments, i.i.d./block/stationary bootstrap.
+- **Execution realism**: fill models, signal lag, reference simulator, turnover,
+  composable transaction-cost models with attribution and cost-multiplier sensitivity,
+  effective-dated cost providers (reference NSE provider).
+- **Multi-asset support**: long-format panels with a symbol column and portfolio
+  simulation.
+- **Sensitivity and regime analysis**: parameter-surface fragility; volatility, drawdown
+  and trend regimes.
+- **Reproducibility manifests**: content hashes and separate fingerprints for code, data,
+  config, parameters and environment.
+- **Reports**: self-contained offline HTML, Markdown, JSON and text; evidence-first
+  narrative.
+- **CLI**: `audit`, `scan`, `validate`, `statistics`, `report`, `rules`, `init-config`,
+  `generate-data`, `version`; documented exit codes.
+- **Adapters**: `GenericResultsAdapter` for returns/equity and trade-ledger exports, with
+  export guidance for VectorBT, Backtrader and LEAN.
+
+Limitations are documented in `docs/methodology/limitations.md` and `SECURITY.md`.
+
+The entries below record how 0.1.0 was built: an initial implementation followed by a
+second, deeper hardening review before release.
 
 ### Hardening review — added
 
@@ -106,3 +145,6 @@ The initial version, followed by a second, deeper hardening review before releas
 - Size-dependent cost estimates back-filled average volume from future bars.
 - TOML configuration did not work on Python 3.10 (now uses `tomli`).
 - HTML reports failed to render for results-mode and static-only audits.
+
+[Unreleased]: https://github.com/z33shxn/QuantProof/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/z33shxn/QuantProof/releases/tag/v0.1.0

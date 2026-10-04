@@ -72,7 +72,7 @@ quantproof = "quantproof.cli:main"
 Homepage = "https://github.com/z33shxn/QuantProof"
 Repository = "https://github.com/z33shxn/QuantProof"
 Issues = "https://github.com/z33shxn/QuantProof/issues"
-Changelog = "https://github.com/z33shxn/QuantProof/blob/HEAD/CHANGELOG.md"
+Changelog = "https://github.com/z33shxn/QuantProof/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
 path = "src/quantproof/_version.py"
