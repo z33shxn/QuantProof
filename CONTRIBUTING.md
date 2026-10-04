@@ -16,7 +16,7 @@ uv sync --extra dev          # reproducible, from uv.lock
 Checks (all run in CI):
 
 ```bash
-pytest                                   # unit, integration, property-based
+pytest                                   # unit, integration, property-based, doctests
 pytest --cov=quantproof --cov-fail-under=85
 ruff check . && ruff format --check .
 mypy
@@ -40,16 +40,18 @@ After changing dependencies, run `uv lock` and commit `uv.lock`.
 
 ## Adding a static rule
 
-1. Add a class to `src/quantproof/analyzers/static/rules.py`:
+Rule metadata lives in one place, the registry in `src/quantproof/rules.py`; rule
+classes contain only detection logic.
+
+1. Add an entry to `_STATIC` in `src/quantproof/rules.py` (id, name, severity policy,
+   description, rationale, impact, how to investigate, remediation, limitations, example,
+   pass title).
+2. Add a class to `src/quantproof/analyzers/static/rules.py`:
 
    ```python
    @register
    class MyRule(StaticRule):
-       id = "QP016"
-       title = "Short description of the problem"
-       pass_title = "Nothing found"
-       why = "Why it matters for research validity."
-       remediation = "How to fix it."
+       id = "QP016"  # title, rationale and remediation come from the registry
 
        def check(self, ctx: ModuleContext) -> list[Finding]:
            return [
@@ -60,10 +62,14 @@ After changing dependencies, run `uv lock` and commit `uv.lock`.
            ]
    ```
 
-2. Add a deliberately broken file `tests/fixtures/broken/qp016_*.py`, register it in
-   `EXPECTED` in `tests/unit/test_static_rules.py`, and add clean counter-examples (valid
-   code that must **not** be flagged).
-3. Document it in `docs/api/rules.md` and `docs/methodology/lookahead-detection.md`.
+   For look-ahead patterns use `timing_finding(...)`, which classifies the use as a live
+   decision (FAIL), label/analysis (INFO) or unknown (WARN).
+3. Add a deliberately broken file `tests/fixtures/broken/qp016_*.py`, register it in
+   `EXPECTED` in `tests/unit/test_static_rules.py`, and add adversarial and false-positive
+   cases to `tests/unit/test_static_adversarial.py`.
+4. Regenerate the catalogue: `quantproof rules --markdown > docs/api/rules.md` (a test
+   fails when it is out of date). Update `docs/methodology/lookahead-detection.md` if the
+   rule changes what the analyzer can resolve.
 
 ## Adding an adapter
 

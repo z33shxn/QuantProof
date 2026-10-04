@@ -233,3 +233,28 @@ def test_methodology_diagram_is_exact():
     assert folds[0][0].tolist() == [7, 8, 9, 10, 11]
     assert folds[1][1].tolist() == [4, 5, 6, 7]
     assert folds[1][0].tolist() == [0, 1, 11]
+
+
+@pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])
+def test_event_time_purging_is_resolution_independent(event_data, unit):
+    X, ends = event_data
+    ref = [tr.tolist() for tr, _ in PurgedKFold(4, event_end=ends, embargo="1D").split(X)]
+    Xu = X.copy()
+    Xu.index = Xu.index.as_unit(unit)
+    ends_u = pd.Series(pd.DatetimeIndex(ends.to_numpy()).as_unit(unit), index=Xu.index)
+    got = [tr.tolist() for tr, _ in PurgedKFold(4, event_end=ends_u, embargo="1D").split(Xu)]
+    assert got == ref
+
+
+@pytest.mark.parametrize("unit", ["s", "us"])
+def test_perturbation_cutoff_is_resolution_independent(unit):
+    from quantproof.analyzers.causal import perturb_after
+    from quantproof.data.synthetic import generate_prices
+
+    px = generate_prices(50, seed=1)
+    pu = px.copy()
+    pu.index = pu.index.as_unit(unit)
+    cutoff = px.index[20]
+    a = perturb_after(px, cutoff, "extreme", seed=3)
+    b = perturb_after(pu, cutoff, "extreme", seed=3)
+    np.testing.assert_array_equal(a.to_numpy(), b.to_numpy())
