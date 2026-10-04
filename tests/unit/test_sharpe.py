@@ -145,3 +145,15 @@ def test_summary_and_drawdown_and_cagr():
 def test_reproducible():
     x = np.random.default_rng(1).normal(size=100)
     assert sharpe_ratio(x) == sharpe_ratio(x.copy())
+
+
+def test_sharpe_is_stable_for_tiny_and_huge_magnitudes():
+    """Regression (found by hypothesis): squared deviations underflowed for ~1e-161."""
+    import numpy as np
+
+    from quantproof.statistics.sharpe import sharpe_ratio, sharpe_ratios
+
+    r = np.array([6.66554818e-161, 0.0, 0.0])
+    assert sharpe_ratio(r) == pytest.approx(sharpe_ratio(r * 0.25), rel=1e-12)
+    assert sharpe_ratio(r) == pytest.approx(sharpe_ratio(r * 1e300), rel=1e-12)
+    np.testing.assert_allclose(sharpe_ratios(np.c_[r, r * 1e-5]), sharpe_ratios(np.c_[r, r])[0])
