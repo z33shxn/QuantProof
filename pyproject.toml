@@ -62,6 +62,7 @@ dev = [
   "pandas-stubs>=2.0",
   "types-PyYAML>=6.0",
   "build>=1.2",
+  "twine>=5",
 ]
 
 [project.scripts]
