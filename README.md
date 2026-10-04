@@ -140,7 +140,7 @@ def generate_signals(data: pd.DataFrame, fast: int = 20, slow: int = 100) -> pd.
     return pd.Series(np.where(fast_ma > slow_ma, 1.0, 0.0), index=data.index).where(slow_ma.notna())
 
 
-result = audit(strategy=generate_signals, data=prices, config=AuditConfig(quick=True))
+result = audit(strategy=generate_signals, data=prices, config=AuditConfig(profile="quick"))
 
 print(result.status)  # Severity.PASS / WARN / FAIL
 for finding in result.issues:  # WARN and FAIL findings only

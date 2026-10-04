@@ -88,8 +88,8 @@ def test_clean_audit_is_reproducible(clean):
 
 
 def test_csv_and_parquet_give_same_results():
-    a = run("clean_strategy", quick=True)
-    b = run("clean_strategy", ROOT / "examples/data/prices.csv", quick=True)
+    a = run("clean_strategy", profile="quick")
+    b = run("clean_strategy", ROOT / "examples/data/prices.csv", profile="quick")
     sa = a.sections["statistics"]["sharpe"]["sharpe_annualized"]
     sb = b.sections["statistics"]["sharpe"]["sharpe_annualized"]
     assert sa == pytest.approx(sb, rel=1e-4)  # CSV is rounded to 6 decimals

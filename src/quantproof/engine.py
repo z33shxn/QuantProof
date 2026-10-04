@@ -34,6 +34,7 @@ from quantproof.analyzers.statistical.analyzer import analyze_statistics
 from quantproof.analyzers.statistical.selection import analyze_selection, walk_forward_single
 from quantproof.config import AuditConfig
 from quantproof.data.loaders import DataSource, describe_source, load_frame, prepare_prices
+from quantproof.data.panel import is_panel, symbols, unique_times, wide
 from quantproof.data.schemas import primary_price_column
 from quantproof.data.validation import validate_data
 from quantproof.errors import QuantProofDataError, QuantProofInputError, QuantProofStrategyError
@@ -113,7 +114,12 @@ def _static_findings(spec: StrategySpec, cfg: AuditConfig) -> tuple[list[Finding
         if func_file == source_path.resolve() and spec.func.__name__ != "generate_signals":
             # A callable defined in a larger file: analyze only its source.
             src = textwrap.dedent(inspect.getsource(spec.func))
-            found = analyze_source(src, f"{source_path}:{spec.func.__name__}", cfg.static)
+            found = analyze_source(
+                src,
+                f"{source_path}:{spec.func.__name__}",
+                cfg.static,
+                entry_points={spec.func.__name__},
+            )
             return found, {"enabled": True, "target": str(source_path), "scope": spec.func.__name__}
         return analyze_file(source_path, cfg.static), {"enabled": True, "target": str(source_path)}
     try:
@@ -127,10 +133,13 @@ def _static_findings(spec: StrategySpec, cfg: AuditConfig) -> tuple[list[Finding
                 "Strategy source code is not available.",
             )
         ], {"enabled": False}
-    return analyze_source(src, f"<{spec.name}>", cfg.static), {"enabled": True, "target": spec.name}
+    found = analyze_source(
+        src, f"<{spec.name}>", cfg.static, entry_points={getattr(spec.func, "__name__", "")}
+    )
+    return found, {"enabled": True, "target": spec.name}
 
 
-def _first_valid(s: pd.Series) -> Any:
+def _first_valid(s: pd.Series | pd.DataFrame) -> Any:
     idx = s.first_valid_index()
     return idx
 
@@ -300,12 +309,18 @@ def _manifest(
 
 
 def _load_prices(
-    data: DataSource, cfg: AuditConfig, timestamp_column: str | None, lineage: Lineage
+    data: DataSource,
+    cfg: AuditConfig,
+    timestamp_column: str | None,
+    lineage: Lineage,
+    symbol_column: str | None = None,
 ) -> tuple[pd.DataFrame, list[Finding], str, dict[str, Any]]:
     raw = load_frame(data, timestamp_column=timestamp_column)
     raw_hash = hash_dataframe(raw)
-    findings = validate_data(raw, cfg.data, timestamp_column=timestamp_column)
-    prepared = prepare_prices(raw, timestamp_column=timestamp_column)
+    findings = validate_data(
+        raw, cfg.data, timestamp_column=timestamp_column, symbol_column=symbol_column
+    )
+    prepared = prepare_prices(raw, timestamp_column=timestamp_column, symbol_column=symbol_column)
     prices = prepared.prices
     if prepared.actions:
         findings.append(
@@ -328,15 +343,35 @@ def _load_prices(
         outputs={"prices": hash_dataframe(prices)},
         notes=prepared.actions,
     )
-    section = {
+    times = unique_times(prices)
+    section: dict[str, Any] = {
         "rows_raw": len(raw),
         "rows_used": len(prices),
-        "start": prices.index.min().isoformat(),
-        "end": prices.index.max().isoformat(),
+        "start": times[0].isoformat(),
+        "end": times[-1].isoformat(),
         "columns": [str(c) for c in prices.columns],
         "actions": prepared.actions,
     }
+    if is_panel(prices):
+        section["symbols"] = symbols(prices)
+        section["n_timestamps"] = len(times)
     return prices, findings, raw_hash, section
+
+
+def _asset_returns(prices: pd.DataFrame, price_col: str) -> tuple[pd.DataFrame | pd.Series, str]:
+    """Per-asset returns (wide for panels) and a description of the reference series."""
+    if is_panel(prices):
+        return (
+            wide(prices, price_col).pct_change(fill_method=None),
+            "equal-weight average of the universe's returns",
+        )
+    return prices[price_col].pct_change(fill_method=None), "the traded asset's returns"
+
+
+def _reference_returns(asset_returns: pd.DataFrame | pd.Series) -> pd.Series:
+    if isinstance(asset_returns, pd.DataFrame):
+        return asset_returns.mean(axis=1, skipna=True)
+    return asset_returns
 
 
 def audit(
@@ -349,6 +384,7 @@ def audit(
     returns: pd.Series | None = None,
     trial_returns: pd.DataFrame | None = None,
     timestamp_column: str | None = None,
+    symbol_column: str | None = None,
 ) -> AuditResult:
     """Audit a strategy (with data) or pre-computed research artifacts.
 
@@ -362,8 +398,12 @@ def audit(
         :class:`AuditConfig`; defaults are documented in :mod:`quantproof.config`.
     benchmark:
         Optional benchmark returns (Series or file) used for regime analysis.
+        Multi-asset data is long format with a symbol column (``symbol``, ``ticker`` …) or a
+        ``(timestamp, symbol)`` MultiIndex; see :mod:`quantproof.data.panel`.
     artifacts / returns / trial_returns:
         Results-mode inputs from any backtesting engine.
+    timestamp_column / symbol_column:
+        Column names when they cannot be detected automatically.
     """
     cfg = (config or AuditConfig()).effective()
     if artifacts is None and (returns is not None or trial_returns is not None):
@@ -375,7 +415,12 @@ def audit(
             )
         return _audit_artifacts(artifacts, cfg, benchmark=benchmark, data=data)
     return _audit_strategy(
-        strategy, data, cfg, benchmark=benchmark, timestamp_column=timestamp_column
+        strategy,
+        data,
+        cfg,
+        benchmark=benchmark,
+        timestamp_column=timestamp_column,
+        symbol_column=symbol_column,
     )
 
 
@@ -398,6 +443,7 @@ def _audit_strategy(
     *,
     benchmark: Any,
     timestamp_column: str | None,
+    symbol_column: str | None = None,
 ) -> AuditResult:
     lineage = Lineage()
     findings: list[Finding] = []
@@ -434,14 +480,15 @@ def _audit_strategy(
         )
 
     prices, data_findings, raw_hash, data_section = _load_prices(
-        data, cfg, timestamp_column, lineage
+        data, cfg, timestamp_column, lineage, symbol_column
     )
     findings += data_findings
     sections["data"] = data_section
     ppy = cfg.statistics.periods_per_year
     price_col = primary_price_column(prices.columns)
     assert price_col is not None
-    asset_returns = prices[price_col].pct_change(fill_method=None)
+    asset_returns, reference_label = _asset_returns(prices, price_col)
+    reference = _reference_returns(asset_returns)
 
     try:
         signals = spec(prices)
@@ -582,9 +629,9 @@ def _audit_strategy(
             sections["validation"] = {"error": str(exc)}
 
     # Regimes
-    bench = _benchmark_series(benchmark, prices.index)
+    bench = _benchmark_series(benchmark, unique_times(prices))
     if cfg.regimes.enabled:
-        ref = bench if bench is not None else asset_returns
+        ref = bench if bench is not None else reference
         reg_section, reg_findings = regime_analysis(
             net,
             ref.loc[start:] if ref is not None else net,
@@ -592,6 +639,10 @@ def _audit_strategy(
             periods_per_year=ppy,
             benchmark_supplied=bench is not None,
         )
+        if bench is None:
+            reg_section.setdefault("definitions", {})["reference"] = (
+                f"Regimes are defined on {reference_label}."
+            )
         sections["regimes"] = reg_section
         findings += reg_findings
 
@@ -603,7 +654,8 @@ def _audit_strategy(
         "parameters": spec.parameters,
         "grid_size": spec.grid_size,
         "evaluation_start": pd.Timestamp(start).isoformat(),
-        "evaluation_end": prices.index[-1].isoformat(),
+        "evaluation_end": unique_times(prices)[-1].isoformat(),
+        "n_symbols": len(symbols(prices)) if is_panel(prices) else 1,
         "n_observations": len(net),
         "headline": {
             "label": "Naive (same-bar, no costs)",
@@ -624,7 +676,7 @@ def _audit_strategy(
     if bench is not None:
         charts["benchmark_equity"] = _downsample(_equity(bench.loc[start:]))
     else:
-        charts["asset_equity"] = _downsample(_equity(asset_returns.loc[start:]))
+        charts["asset_equity"] = _downsample(_equity(reference.loc[start:]))
     sections["charts"] = charts
     manifest = _manifest(
         spec=spec,
@@ -685,7 +737,7 @@ def _audit_artifacts(
     asset_returns = None
     if prices is not None:
         pc = primary_price_column(prices.columns)
-        asset_returns = prices[pc].pct_change(fill_method=None) if pc else None
+        asset_returns = _reference_returns(_asset_returns(prices, pc)[0]) if pc else None
 
     if art.trades is not None and {"signal_time", "execution_time"} <= set(art.trades.columns):
         timing = analyze_execution_timing(art.trades["signal_time"], art.trades["execution_time"])

@@ -30,7 +30,9 @@ def main() -> None:
     print(f"{'example':<24}{'verdict':<9}{'naive SR':>9}{'audit SR':>9}  issues")
     for name, data in EXAMPLES.items():
         result = audit(
-            HERE / name / "strategy.py", HERE / "data" / data, config=AuditConfig(quick=args.quick)
+            HERE / name / "strategy.py",
+            HERE / "data" / data,
+            config=AuditConfig(profile="quick" if args.quick else "standard"),
         )
         for ext in ("html", "json", "md"):
             write_report(result, out / f"{name}.{ext}")

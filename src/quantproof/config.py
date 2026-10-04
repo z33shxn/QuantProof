@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -62,16 +62,19 @@ class ExecutionConfig(_Strict):
     impact_coefficient: float = Field(
         0.0, ge=0, description="Square-root impact coefficient Y; 0 disables impact."
     )
+    tax_bps: float = Field(
+        0.0, ge=0, description="Transaction tax / stamp duty on every trade, bps of notional."
+    )
     capital: float = Field(1_000_000.0, gt=0)
-    cost_grid_bps: list[float] = Field(
-        default_factory=lambda: [0.0, 2.0, 5.0, 10.0, 20.0, 50.0],
-        description="Round-trip-agnostic one-way cost levels for the cost-sensitivity table.",
+    cost_multipliers: list[Annotated[float, Field(ge=0)]] = Field(
+        default_factory=lambda: [0.0, 0.5, 1.0, 1.5, 2.0, 3.0],
+        description="Multiples of the audit cost model shown in the cost-sensitivity table.",
     )
 
     @property
     def one_way_cost_bps(self) -> float:
-        """Commission + half spread + slippage, in basis points of traded notional."""
-        return self.commission_bps + self.spread_bps / 2.0 + self.slippage_bps
+        """Commission + half spread + slippage + taxes, in bps of traded notional (no impact)."""
+        return self.commission_bps + self.spread_bps / 2.0 + self.slippage_bps + self.tax_bps
 
 
 class StatisticsConfig(_Strict):
@@ -99,6 +102,9 @@ class StatisticsConfig(_Strict):
         4.0, gt=0, description="Annualized Sharpe above which results are flagged as implausible."
     )
     min_observations: int = Field(60, ge=10)
+    require_declared_trials: bool = Field(
+        False, description="Make an undeclared number of trials a WARN instead of INFO."
+    )
 
 
 class ValidationConfig(_Strict):
@@ -130,11 +136,11 @@ class ValidationConfig(_Strict):
         return self
 
 
-SchemeName = Literal["additive", "multiplicative", "permutation", "shock"]
+SchemeName = Literal["additive", "multiplicative", "permutation", "replacement", "extreme"]
 
 
 def _all_schemes() -> list[SchemeName]:
-    return ["additive", "multiplicative", "permutation", "shock"]
+    return ["additive", "multiplicative", "permutation", "replacement", "extreme"]
 
 
 class CausalityConfig(_Strict):
@@ -149,8 +155,9 @@ class CausalityConfig(_Strict):
     min_history_fraction: float = Field(
         0.2, ge=0, lt=1, description="Earliest test timestamp as a fraction of the sample."
     )
-    rtol: float = Field(1e-9, ge=0)
-    atol: float = Field(1e-12, ge=0)
+    rtol: float = Field(1e-9, ge=0, description="Relative tolerance when comparing decisions.")
+    atol: float = Field(1e-12, ge=0, description="Absolute tolerance when comparing decisions.")
+    seed: int | None = Field(None, description="Perturbation seed; defaults to the audit seed.")
 
 
 class RegimeConfig(_Strict):
@@ -207,9 +214,11 @@ class StaticConfig(_Strict):
 class AuditConfig(_Strict):
     """Top-level audit configuration."""
 
-    seed: int = 42
-    quick: bool = Field(
-        False, description="Reduce bootstrap/CSCV/perturbation sizes for fast iteration."
+    seed: int = Field(42, description="Seed for every random procedure in the audit.")
+    profile: Literal["quick", "standard", "strict"] = Field(
+        "standard",
+        description="Workload/strictness preset applied on top of the explicit settings; see "
+        "PROFILES and AuditConfig.effective().",
     )
     data: DataValidationConfig = Field(default_factory=DataValidationConfig)
     static: StaticConfig = Field(default_factory=StaticConfig)
@@ -221,15 +230,38 @@ class AuditConfig(_Strict):
     sensitivity: SensitivityConfig = Field(default_factory=SensitivityConfig)
 
     def effective(self) -> AuditConfig:
-        """Return a copy with ``quick`` reductions applied (explicit, documented)."""
-        if not self.quick:
-            return self.model_copy(deep=True)
+        """Return a copy with the profile applied.
+
+        * ``quick`` caps workload: bootstrap ≤ 200, CSCV combinations ≤ 500, evaluated grid
+          points ≤ 50, perturbation timestamps ≤ 4.
+        * ``standard`` changes nothing.
+        * ``strict`` raises evidence requirements as floors (explicit settings above the floor
+          are kept): perturbation timestamps ≥ 16, bootstrap ≥ 2000, CSCV partitions ≥ 16 and
+          combinations ≥ 12,870 (all of C(16, 8)), CPCV groups ≥ 8, the QP013 search threshold
+          ≤ 50, and an undeclared number of trials becomes a WARN (QP-STAT-005).
+
+        Profiles never change economic assumptions (costs, lags, thresholds of plausibility).
+        """
         cfg = self.model_copy(deep=True)
-        cfg.statistics.n_bootstrap = min(cfg.statistics.n_bootstrap, 200)
-        cfg.validation.pbo_max_combinations = min(cfg.validation.pbo_max_combinations, 500)
-        cfg.validation.max_trials = min(cfg.validation.max_trials, 50)
-        cfg.causality.n_timestamps = min(cfg.causality.n_timestamps, 4)
+        if self.profile == "quick":
+            cfg.statistics.n_bootstrap = min(cfg.statistics.n_bootstrap, 200)
+            cfg.validation.pbo_max_combinations = min(cfg.validation.pbo_max_combinations, 500)
+            cfg.validation.max_trials = min(cfg.validation.max_trials, 50)
+            cfg.causality.n_timestamps = min(cfg.causality.n_timestamps, 4)
+        elif self.profile == "strict":
+            cfg.causality.n_timestamps = max(cfg.causality.n_timestamps, 16)
+            cfg.statistics.n_bootstrap = max(cfg.statistics.n_bootstrap, 2000)
+            cfg.validation.pbo_partitions = max(cfg.validation.pbo_partitions, 16)
+            cfg.validation.pbo_max_combinations = max(cfg.validation.pbo_max_combinations, 12870)
+            cfg.validation.cpcv_groups = max(cfg.validation.cpcv_groups, 8)
+            cfg.static.max_trials_threshold = min(cfg.static.max_trials_threshold, 50)
+            cfg.statistics.require_declared_trials = True
         return cfg
+
+    @classmethod
+    def from_profile(cls, profile: str, **overrides: Any) -> AuditConfig:
+        """Configuration for a named profile (``quick``, ``standard``, ``strict``)."""
+        return cls.from_dict({"profile": profile, **overrides})
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AuditConfig:
