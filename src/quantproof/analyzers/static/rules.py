@@ -21,6 +21,7 @@ import itertools
 import math
 import re
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from typing import ClassVar
 
 from quantproof.analyzers.static.analyzer import (
@@ -34,27 +35,46 @@ from quantproof.analyzers.static.analyzer import (
     TRAIN_NAME_RE,
     CallSite,
     ModuleContext,
-    TaintOrigin,
     TaintSink,
     dotted_name,
     get_kwarg,
+    is_cross_sectional,
+    is_full_sample_normalization,
     is_negative_expr,
     literal,
     names_in,
+    non_causal_description,
     string_keys_in,
 )
-from quantproof.results import Category, Finding, Location
+from quantproof.results import Category, Finding, Location, Usage
+from quantproof.rules import RuleSpec, get_rule
 from quantproof.severity import Confidence, Severity
 
 
 class StaticRule(ABC):
-    """Base class for static rules."""
+    """Base class for static rules. Metadata comes from :mod:`quantproof.rules`."""
 
     id: ClassVar[str]
-    title: ClassVar[str]
-    pass_title: ClassVar[str]
-    why: ClassVar[str]
-    remediation: ClassVar[str]
+
+    @property
+    def spec(self) -> RuleSpec:
+        return get_rule(self.id)
+
+    @property
+    def title(self) -> str:
+        return self.spec.name
+
+    @property
+    def pass_title(self) -> str:
+        return self.spec.pass_title or f"{self.spec.name}: nothing detected"
+
+    @property
+    def why(self) -> str:
+        return self.spec.rationale
+
+    @property
+    def remediation(self) -> str:
+        return self.spec.remediation
 
     @abstractmethod
     def check(self, ctx: ModuleContext) -> list[Finding]:
@@ -68,8 +88,9 @@ class StaticRule(ABC):
         message: str,
         *,
         confidence: Confidence = Confidence.MEDIUM,
-        evidence: dict[str, object] | None = None,
+        evidence: Mapping[str, object] | None = None,
         title: str | None = None,
+        usage: Usage | None = None,
     ) -> Finding:
         return Finding(
             id=self.id,
@@ -77,11 +98,12 @@ class StaticRule(ABC):
             severity=severity,
             title=title or self.title,
             message=message,
-            evidence=evidence or {},
+            evidence=dict(evidence or {}),
             location=ctx.location(node) if node is not None else Location(file=ctx.filename),
             why_it_matters=self.why,
             recommendation=self.remediation,
             confidence=confidence,
+            usage=usage,
         )
 
     def passed(self, filename: str) -> Finding:
@@ -106,10 +128,6 @@ def register(cls: type[StaticRule]) -> type[StaticRule]:
     return cls
 
 
-def _sinks_for(ctx: ModuleContext, origin: TaintOrigin, kinds: set[str]) -> list[str]:
-    return [s.detail for s in ctx.sinks if s.kind in kinds and any(o is origin for o in s.origins)]
-
-
 def _assigned_label(ctx: ModuleContext, node: ast.AST) -> str | None:
     for anc in ctx.ancestors(node):
         if isinstance(anc, (ast.Assign, ast.AnnAssign)):
@@ -127,128 +145,96 @@ def _assigned_label(ctx: ModuleContext, node: ast.AST) -> str | None:
     return None
 
 
+def classify_use(ctx: ModuleContext, node: ast.AST) -> tuple[Usage | None, list[str]]:
+    """How the future-dated value produced at ``node`` is used.
+
+    Returns ``(LIVE_DECISION, details)`` if it reaches a signal or model input,
+    ``(LABEL_OR_ANALYSIS, details)`` if it only reaches labels/targets, and
+    ``(None, [])`` if its use could not be determined.
+    """
+    live = [s.detail for s in ctx.sinks_reached(node, {"signal", "feature"})]
+    if live:
+        return Usage.LIVE_DECISION, live
+    labels = [s.detail for s in ctx.sinks_reached(node, {"label"})]
+    name = _assigned_label(ctx, node)
+    if labels or (name is not None and LABEL_NAME_RE.match(name)):
+        return Usage.LABEL_OR_ANALYSIS, labels or [f"assigned to '{name}'"]
+    return None, []
+
+
+def timing_finding(
+    rule: StaticRule,
+    ctx: ModuleContext,
+    node: ast.AST,
+    what: str,
+    *,
+    unknown_severity: Severity = Severity.WARN,
+    live_severity: Severity = Severity.FAIL,
+    live_confidence: Confidence = Confidence.HIGH,
+) -> Finding:
+    """Finding for a future-dated construct, with severity decided by how it is used."""
+    usage, details = classify_use(ctx, node)
+    evidence = {"construct": what, "reaches": details, "usage": usage.value if usage else None}
+    if usage is Usage.LIVE_DECISION:
+        return rule.finding(
+            ctx,
+            node,
+            live_severity,
+            f"{what} reaches a live decision ({details[0]}).",
+            confidence=live_confidence,
+            evidence=evidence,
+            usage=usage,
+        )
+    if usage is Usage.LABEL_OR_ANALYSIS:
+        return rule.finding(
+            ctx,
+            node,
+            Severity.INFO,
+            f"{what} is used for label/analysis construction ({details[0]}); legitimate as long "
+            "as it never feeds features or signals.",
+            confidence=Confidence.MEDIUM,
+            evidence=evidence,
+            usage=usage,
+            title=f"{rule.title} (label/analysis use)",
+        )
+    return rule.finding(
+        ctx,
+        node,
+        unknown_severity,
+        f"{what} uses future observations; it was not traced to a signal, model input or label. "
+        "Verify it is only used for analysis or labels.",
+        confidence=Confidence.MEDIUM,
+        evidence=evidence,
+    )
+
+
 # --------------------------------------------------------------------- QP001
 @register
 class NegativeShift(StaticRule):
     id = "QP001"
-    title = "Look-ahead: negative temporal shift"
-    pass_title = "No negative temporal shift detected"
-    why = (
-        "shift(-k), diff(-k) and pct_change(-k) move observations from the future into the "
-        "current row. If the result feeds a signal or a feature, the backtest uses information "
-        "that was not available at decision time."
-    )
-    remediation = (
-        "Use negative shifts only to build prediction labels that never feed features or "
-        "signals. For signals, use shift(k) with k ≥ 0 so each row uses only past data."
-    )
 
     def check(self, ctx: ModuleContext) -> list[Finding]:
-        out: list[Finding] = []
-        for origin in ctx.origins:
-            if origin.rule != "QP001":
-                continue
-            node = origin.node
-            assert isinstance(node, ast.Call)
-            period = node.args[0] if node.args else get_kwarg(node, "periods")
-            _neg, certain = is_negative_expr(period)
-            signal_sinks = _sinks_for(ctx, origin, {"signal"})
-            feature_sinks = _sinks_for(ctx, origin, {"feature"})
-            label = _assigned_label(ctx, node)
-            label_only = (
-                not signal_sinks
-                and not feature_sinks
-                and (
-                    _sinks_for(ctx, origin, {"label"}) != []
-                    or (label is not None and LABEL_NAME_RE.match(label) is not None)
-                )
-            )
-            evidence = {
-                "period_literal": certain,
-                "reaches": signal_sinks + feature_sinks,
-                "assigned_to": label,
-            }
-            if signal_sinks:
-                out.append(
-                    self.finding(
-                        ctx,
-                        node,
-                        Severity.FAIL,
-                        f"{origin.description} reaches strategy output ({signal_sinks[0]}).",
-                        confidence=Confidence.HIGH if certain else Confidence.MEDIUM,
-                        evidence=evidence,
-                    )
-                )
-            elif feature_sinks:
-                out.append(
-                    self.finding(
-                        ctx,
-                        node,
-                        Severity.FAIL,
-                        f"{origin.description} is used as a model input ({feature_sinks[0]}).",
-                        confidence=Confidence.HIGH if certain else Confidence.MEDIUM,
-                        evidence=evidence,
-                    )
-                )
-            elif label_only:
-                out.append(
-                    self.finding(
-                        ctx,
-                        node,
-                        Severity.INFO,
-                        f"{origin.description} builds a prediction label"
-                        + (f" ('{label}')" if label else "")
-                        + ". This is legitimate only if the label never feeds features or signals.",
-                        confidence=Confidence.MEDIUM,
-                        evidence=evidence,
-                        title="Negative shift used for label construction",
-                    )
-                )
-            else:
-                out.append(
-                    self.finding(
-                        ctx,
-                        node,
-                        Severity.WARN,
-                        f"{origin.description} reads future observations"
-                        + (f" (assigned to '{label}')" if label else "")
-                        + ". It was not traced to a signal or feature, but verify it is only "
-                        "used as a label.",
-                        confidence=Confidence.MEDIUM,
-                        evidence=evidence,
-                    )
-                )
-        return out
+        return [
+            timing_finding(self, ctx, o.node, o.description)
+            for o in ctx.origins
+            if o.rule == "QP001"
+        ]
 
 
 # --------------------------------------------------------------------- QP002
 @register
 class CenteredRolling(StaticRule):
     id = "QP002"
-    title = "Look-ahead: centered rolling window"
-    pass_title = "No centered rolling window detected"
-    why = (
-        "rolling(..., center=True) labels each window by its middle observation, so the value "
-        "at time t averages roughly window/2 future observations."
-    )
-    remediation = "Use trailing windows (center=False, the default)."
 
     def check(self, ctx: ModuleContext) -> list[Finding]:
-        out = []
+        out = [
+            timing_finding(self, ctx, o.node, o.description)
+            for o in ctx.origins
+            if o.rule == "QP002"
+        ]
         for c in ctx.calls_named("rolling"):
             center = get_kwarg(c.node, "center")
-            value = literal(center)
-            if value is True:
-                out.append(
-                    self.finding(
-                        ctx,
-                        c.node,
-                        Severity.FAIL,
-                        "rolling() is called with center=True; each value uses future observations.",
-                        confidence=Confidence.HIGH,
-                    )
-                )
-            elif center is not None and value is NOT_LITERAL:
+            if center is not None and literal(center) is NOT_LITERAL:
                 out.append(
                     self.finding(
                         ctx,
@@ -266,42 +252,21 @@ class CenteredRolling(StaticRule):
 @register
 class FutureOrientedConstruction(StaticRule):
     id = "QP003"
-    title = "Suspicious future-oriented construction"
-    pass_title = "No future-oriented construction detected"
-    why = (
-        "Look-ahead index arithmetic (x[i + 1] inside a time loop), np.roll (which wraps the end "
-        "of the series to the start) and future-named variables used as inputs commonly leak "
-        "information from later bars."
-    )
-    remediation = (
-        "Index only bars ≤ i when computing the decision for bar i. Replace np.roll with "
-        "shift() (which inserts NaN instead of wrapping). Rename or remove future-named inputs."
-    )
 
     def check(self, ctx: ModuleContext) -> list[Finding]:
         out: list[Finding] = []
         for origin in ctx.origins:
-            if origin.rule != "QP003":
-                continue
-            reaches = _sinks_for(ctx, origin, {"signal", "feature"})
-            sev = Severity.FAIL if reaches else Severity.WARN
-            msg = origin.description
-            msg += (
-                f" reaches strategy output/features ({reaches[0]})."
-                if reaches
-                else " reads data beyond the current bar; confirm it is used only for fills or labels."
-            )
-            out.append(
-                self.finding(
-                    ctx,
-                    origin.node,
-                    sev,
-                    msg,
-                    confidence=Confidence.HIGH if reaches else Confidence.LOW,
-                    evidence={"reaches": reaches},
+            if origin.rule == "QP003":
+                out.append(
+                    timing_finding(
+                        self,
+                        ctx,
+                        origin.node,
+                        origin.description,
+                        live_confidence=Confidence.MEDIUM,
+                    )
                 )
-            )
-        # np.roll with positive shift wraps the last observations to the front.
+        # np.roll with a positive shift wraps the last observations to the front.
         for c in ctx.calls:
             if c.name == "roll" and c.qualname.startswith(("numpy", "np")):
                 shift = c.node.args[1] if len(c.node.args) > 1 else get_kwarg(c.node, "shift")
@@ -317,22 +282,18 @@ class FutureOrientedConstruction(StaticRule):
                             confidence=Confidence.MEDIUM,
                         )
                     )
-        # Future-named identifiers used as model inputs.
+        # Future-named identifiers used as model inputs (name-based, low confidence).
         for c in ctx.calls:
             if c.name in FIT_METHODS | {"predict", "predict_proba"} and c.node.args:
                 arg = c.node.args[0]
-                ids = names_in(arg) | string_keys_in(arg)
-                for name in ("X",):
-                    ids.discard(name)
-                const_ids: set[str] = set()
+                ids = (names_in(arg) | string_keys_in(arg)) - {"X"}
                 for n in names_in(arg):
                     const = ctx.module_constants.get(n)
                     if isinstance(const, (list, tuple)):
-                        const_ids.update(x for x in const if isinstance(x, str))
-                future = sorted(i for i in ids | const_ids if FUTURE_NAME_RE.search(i))
-                if future and not any(
-                    o.node is s.node for s in ctx.sinks for o in s.origins if s.node is c.node
-                ):
+                        ids.update(x for x in const if isinstance(x, str))
+                future = sorted(i for i in ids if FUTURE_NAME_RE.search(i))
+                traced = any(s.node is c.node for s in ctx.sinks if s.kind == "feature")
+                if future and not traced:
                     out.append(
                         self.finding(
                             ctx,
@@ -351,17 +312,6 @@ class FutureOrientedConstruction(StaticRule):
 @register
 class RandomTrainTestSplit(StaticRule):
     id = "QP004"
-    title = "Random train/test split on (possibly) temporal data"
-    pass_title = "No shuffled train/test split detected"
-    why = (
-        "train_test_split shuffles by default. With time-series data, shuffled splits put future "
-        "observations in the training set and overlapping labels on both sides of the split, "
-        "inflating out-of-sample performance. Context-dependent: it is fine for i.i.d. data."
-    )
-    remediation = (
-        "Use train_test_split(..., shuffle=False), a walk-forward split, or "
-        "quantproof.validation.PurgedKFold / CPCV."
-    )
 
     def check(self, ctx: ModuleContext) -> list[Finding]:
         out = []
@@ -409,17 +359,6 @@ _SEARCH = {
 @register
 class RandomizedCV(StaticRule):
     id = "QP005"
-    title = "Randomized / non-temporal cross-validation"
-    pass_title = "No randomized cross-validation detected"
-    why = (
-        "K-fold variants that shuffle (or that train on folds located after the test fold) "
-        "let models learn from the future. With overlapping labels, test information also leaks "
-        "into training. Context-dependent: harmless for genuinely i.i.d. samples."
-    )
-    remediation = (
-        "Use TimeSeriesSplit for forward-only evaluation, or quantproof.validation.PurgedKFold "
-        "/ CPCV with an embargo when labels overlap."
-    )
 
     def check(self, ctx: ModuleContext) -> list[Finding]:
         out = []
@@ -527,19 +466,29 @@ def _transformer_fits(ctx: ModuleContext) -> list[tuple[CallSite, ast.expr]]:
     return out
 
 
+def _fit_outputs(ctx: ModuleContext, call: CallSite) -> set[str]:
+    """Names holding the fitted data or its transform (for linking a fit to a later split)."""
+    out = set(names_in(call.node.args[0]))
+    label = _assigned_label(ctx, call.node)
+    if label:
+        out.add(label)
+    recv = call.receiver
+    if isinstance(recv, ast.Name):
+        for c in ctx.calls:
+            if (
+                c.name == "transform"
+                and isinstance(c.receiver, ast.Name)
+                and c.receiver.id == recv.id
+            ):
+                lbl = _assigned_label(ctx, c.node)
+                if lbl:
+                    out.add(lbl)
+    return out
+
+
 @register
 class FitBeforeSplit(StaticRule):
     id = "QP006"
-    title = "Leakage: preprocessing fitted before the train/test split"
-    pass_title = "No fit-before-split leakage detected"
-    why = (
-        "Fitting a scaler, imputer, PCA or feature selector on the full dataset lets statistics "
-        "of the test period (means, variances, selected features) shape the training data."
-    )
-    remediation = (
-        "Split first, fit transformers on the training fold only, then transform the test fold "
-        "(an sklearn Pipeline inside a temporal CV loop does this automatically)."
-    )
 
     def check(self, ctx: ModuleContext) -> list[Finding]:
         out = []
@@ -547,134 +496,105 @@ class FitBeforeSplit(StaticRule):
             data_ids = names_in(data) | string_keys_in(data)
             if any(TRAIN_NAME_RE.search(i) for i in data_ids):
                 continue
-            later_splits = [
+            later = [
                 s
                 for s in ctx.splits
                 if getattr(s.node, "lineno", 0) > call.node.lineno
                 and (s.scope == call.scope or s.scope == "<module>" or call.scope == "<module>")
             ]
-            earlier_splits = [
+            earlier = [
                 s
                 for s in ctx.splits
                 if getattr(s.node, "lineno", 0) < call.node.lineno
                 and (s.scope == call.scope or s.scope == "<module>")
             ]
-            if later_splits and not earlier_splits:
+            if not later or earlier:
+                continue
+            fitted = _fit_outputs(ctx, call)
+            linked = [s for s in later if names_in(s.node) & fitted]
+            first = (linked or later)[0]
+            line = getattr(first.node, "lineno", None)
+            if linked:
                 out.append(
                     self.finding(
                         ctx,
                         call.node,
                         Severity.FAIL,
-                        f".{call.name}() on '{ast.unparse(data)}' happens before the first "
-                        f"train/test split (line {getattr(later_splits[0].node, 'lineno', '?')}).",
+                        f".{call.name}() on '{ast.unparse(data)}' is fitted before the data is split "
+                        f"(line {line}); test-period statistics shape the training data.",
                         confidence=Confidence.MEDIUM,
-                        evidence={"split_line": getattr(later_splits[0].node, "lineno", None)},
+                        evidence={
+                            "split_line": line,
+                            "linked_names": sorted(fitted & names_in(first.node)),
+                        },
+                    )
+                )
+            else:
+                out.append(
+                    self.finding(
+                        ctx,
+                        call.node,
+                        Severity.WARN,
+                        f".{call.name}() on '{ast.unparse(data)}' happens before a train/test split "
+                        f"(line {line}); the fitted data could not be linked to the split, so confirm "
+                        "it is not the data being split.",
+                        confidence=Confidence.LOW,
+                        evidence={"split_line": line},
                     )
                 )
         return out
 
 
 # --------------------------------------------------------------------- QP007
-_LOCAL_STAT_TOKENS = {"rolling", "expanding", "ewm", "groupby", "resample", "cummax", "cummin"}
-
-
-def _is_global_stat(node: ast.AST, methods: set[str]) -> ast.Call | None:
-    if (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr in methods
-    ):
-        recv_ids = names_in(node.func.value)
-        if recv_ids & _LOCAL_STAT_TOKENS:
-            return None
-        if any(TRAIN_NAME_RE.search(i) for i in recv_ids | string_keys_in(node.func.value)):
-            return None
-        return node
-    return None
-
-
 @register
 class FullSampleNormalization(StaticRule):
     id = "QP007"
-    title = "Full-sample normalization"
-    pass_title = "No full-sample normalization detected"
-    why = (
-        "(x - x.mean()) / x.std(), min-max scaling over the whole series, or scalers fitted on all "
-        "data use statistics computed over the entire sample, including the future. A z-score at "
-        "time t then depends on prices after t."
-    )
-    remediation = (
-        "Use trailing statistics (x.rolling(n).mean(), x.expanding().std()) or fit the scaler on "
-        "the training window only. Cross-sectional normalization within a date is fine."
-    )
-
-    def _cross_sectional(self, ctx: ModuleContext, node: ast.AST) -> bool:
-        for anc in ctx.ancestors(node):
-            if isinstance(anc, ast.Call):
-                ids = names_in(anc.func)
-                if "groupby" in ids or (
-                    isinstance(anc.func, ast.Attribute)
-                    and anc.func.attr == "apply"
-                    and literal(get_kwarg(anc, "axis")) in (1, "columns")
-                ):
-                    return True
-        return False
 
     def check(self, ctx: ModuleContext) -> list[Finding]:
         out: list[Finding] = []
-        seen: set[int] = set()
-        for node in ast.walk(ctx.tree):
-            if not (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)):
+        nodes = [n for n in ast.walk(ctx.tree) if is_full_sample_normalization(n)]
+        nodes += [
+            c.node
+            for c in ctx.calls
+            if c.name in {"zscore", "scale", "minmax_scale", "robust_scale"}
+            and (c.qualname.startswith(("scipy", "sklearn")) or c.name == "zscore")
+        ]
+        for node in nodes:
+            if is_cross_sectional(ctx, node):
                 continue
-            num = node.left
-            if not (isinstance(num, ast.BinOp) and isinstance(num.op, ast.Sub)):
-                continue
-            center = _is_global_stat(num.right, {"mean", "median", "min"})
-            if center is None:
-                continue
-            if self._cross_sectional(ctx, node):
-                continue
-            if id(node) in seen:
-                continue
-            seen.add(id(node))
+            usage, details = classify_use(ctx, node)
+            text = ast.unparse(node)[:80]
+            msg = f"'{text}' normalizes with statistics of the full sample"
+            if usage is Usage.LIVE_DECISION:
+                msg += (
+                    f" and reaches a live decision ({details[0]}). If the series is time-indexed this "
+                    "is look-ahead; the runtime causality test gives definitive evidence."
+                )
+            else:
+                msg += "."
             out.append(
                 self.finding(
                     ctx,
                     node,
                     Severity.WARN,
-                    f"'{ast.unparse(node)[:80]}' normalizes with statistics of the full sample.",
+                    msg,
                     confidence=Confidence.MEDIUM,
+                    evidence={"reaches": details},
+                    usage=usage,
                 )
             )
-        for c in ctx.calls:
-            if c.name in {"zscore", "scale", "minmax_scale", "robust_scale"} and (
-                c.qualname.startswith(("scipy", "sklearn")) or c.name == "zscore"
-            ):
-                if self._cross_sectional(ctx, c.node):
-                    continue
-                out.append(
-                    self.finding(
-                        ctx,
-                        c.node,
-                        Severity.WARN,
-                        f"{c.name}() standardizes using full-sample statistics.",
-                        confidence=Confidence.MEDIUM,
-                    )
-                )
         split_lines = [getattr(s.node, "lineno", 0) for s in ctx.splits]
         for call, data in _transformer_fits(ctx):
             ids = names_in(data) | string_keys_in(data)
-            if any(TRAIN_NAME_RE.search(i) for i in ids):
+            if any(TRAIN_NAME_RE.search(i) for i in ids) or split_lines:
                 continue
-            if split_lines:
-                continue  # handled by QP006 (fit before split) or fitted after a split
             out.append(
                 self.finding(
                     ctx,
                     call.node,
                     Severity.WARN,
-                    f"Transformer .{call.name}() on '{ast.unparse(data)}' with no train/test "
-                    "split anywhere in the file: statistics come from the full sample.",
+                    f"Transformer .{call.name}() on '{ast.unparse(data)}' with no train/test split "
+                    "anywhere in the file: statistics come from the full sample.",
                     confidence=Confidence.MEDIUM,
                 )
             )
@@ -685,14 +605,6 @@ class FullSampleNormalization(StaticRule):
 @register
 class TargetLeakage(StaticRule):
     id = "QP008"
-    title = "Target leakage: target included in features"
-    pass_title = "No direct target leakage detected"
-    why = (
-        "If the prediction target (or a column it is copied from) is part of the feature matrix, "
-        "the model can simply read the answer; in-sample and cross-validated scores become "
-        "meaningless."
-    )
-    remediation = "Exclude the target column (and anything derived from it) from the features."
 
     def _str_list(self, ctx: ModuleContext, node: ast.AST) -> list[str] | None:
         value = literal(node)
@@ -703,6 +615,45 @@ class TargetLeakage(StaticRule):
             if isinstance(const, (list, tuple)) and all(isinstance(v, str) for v in const):
                 return list(const)
         return None
+
+    @staticmethod
+    def _fit_target_keys(ctx: ModuleContext) -> set[str]:
+        out: set[str] = set()
+        for c in ctx.calls:
+            if (
+                c.name in FIT_METHODS
+                and len(c.node.args) > 1
+                and isinstance(c.node.args[1], ast.Subscript)
+            ):
+                key = literal(c.node.args[1].slice)
+                if isinstance(key, str):
+                    out.add(key)
+        return out
+
+    @staticmethod
+    def _target_copies(ctx: ModuleContext, targets: set[str]) -> dict[str, str]:
+        """Columns assigned as direct copies of a target column (no temporal transform)."""
+        temporal = {"shift", "rolling", "expanding", "ewm", "diff", "pct_change", "resample"}
+        copies: dict[str, str] = {}
+        changed = True
+        while changed:
+            changed = False
+            for node in ast.walk(ctx.tree):
+                if not (isinstance(node, ast.Assign) and len(node.targets) == 1):
+                    continue
+                tgt = node.targets[0]
+                key = literal(tgt.slice) if isinstance(tgt, ast.Subscript) else NOT_LITERAL
+                if not isinstance(key, str) or key in targets or key in copies:
+                    continue
+                if names_in(node.value) & temporal:
+                    continue
+                for ref in string_keys_in(node.value):
+                    origin = ref if ref in targets else copies.get(ref)
+                    if origin:
+                        copies[key] = origin
+                        changed = True
+                        break
+        return copies
 
     def check(self, ctx: ModuleContext) -> list[Finding]:
         target_keys: dict[str, str] = {}  # target variable name -> column key
@@ -742,6 +693,7 @@ class TargetLeakage(StaticRule):
                         dropped = [single]
                 if dropped is not None:
                     features[tgt.id] = (node, None, dropped)
+        copies = self._target_copies(ctx, set(target_keys.values()) | self._fit_target_keys(ctx))
         out = []
         for c in ctx.calls:
             if c.name not in FIT_METHODS or len(c.node.args) < 2:
@@ -772,6 +724,19 @@ class TargetLeakage(StaticRule):
                 _, x_cols, x_dropped = features[x_node.id]
             elif isinstance(x_node, ast.Subscript):
                 x_cols = self._str_list(ctx, x_node.slice)
+            copied = sorted(k for k in (x_cols or []) if copies.get(k) == y_key)
+            if x_cols is not None and copied and y_key not in x_cols:
+                out.append(
+                    self.finding(
+                        ctx,
+                        c.node,
+                        Severity.FAIL,
+                        f"Feature column(s) {copied} are copies of the target '{y_key}' passed to "
+                        f".{c.name}().",
+                        confidence=Confidence.MEDIUM,
+                        evidence={"target": y_key, "copies": copied},
+                    )
+                )
             if x_cols is not None and y_key in x_cols:
                 out.append(
                     self.finding(
@@ -867,17 +832,6 @@ def _declared_execution(ctx: ModuleContext) -> dict[str, object] | None:
 @register
 class SameBarExecution(StaticRule):
     id = "QP009"
-    title = "Same-bar signal/execution assumption"
-    pass_title = "No undocumented same-bar execution detected"
-    why = (
-        "A signal computed from a bar's close and filled at that same close assumes zero latency "
-        "and an exact closing fill. Short-horizon strategies often lose most of their edge once a "
-        "realistic delay is introduced."
-    )
-    remediation = (
-        "Declare the assumption explicitly (EXECUTION = {'signal_lag': ...}) and test with at "
-        "least one bar of execution lag or next-open fills."
-    )
 
     def check(self, ctx: ModuleContext) -> list[Finding]:
         out = []
@@ -935,20 +889,70 @@ class SameBarExecution(StaticRule):
         return out
 
 
+CLOSE_COLUMNS = {"close", "adj_close", "price", "Close", "Adj Close"}
+OPEN_COLUMNS = {"open", "Open"}
+
+
+def _definitions(ctx: ModuleContext) -> dict[str, ast.expr]:
+    """Last assignment to each name / string column key (flow-insensitive)."""
+    out: dict[str, ast.expr] = {}
+    for node in ast.walk(ctx.tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            tgt = node.targets[0]
+            if isinstance(tgt, ast.Name):
+                out[tgt.id] = node.value
+            elif isinstance(tgt, ast.Subscript):
+                key = literal(tgt.slice)
+                if isinstance(key, str):
+                    out[key] = node.value
+    return out
+
+
+def price_provenance(
+    expr: ast.AST, defs: dict[str, ast.expr], depth: int = 0, seen: frozenset[str] = frozenset()
+) -> set[str]:
+    """Price columns an expression depends on *at the same bar*.
+
+    References inside a positive ``shift(k)`` are prior bars and are ignored; names and
+    column keys are resolved through their definitions (up to 6 levels).
+    """
+    found: set[str] = set()
+
+    def visit(node: ast.AST) -> None:
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "shift"
+        ):
+            period = node.args[0] if node.args else get_kwarg(node, "periods")
+            value = literal(period) if period is not None else 1
+            if isinstance(value, (int, float)) and value > 0:
+                return  # prior bar only
+        if isinstance(node, ast.Subscript):
+            key = literal(node.slice)
+            if isinstance(key, str):
+                if key in CLOSE_COLUMNS | OPEN_COLUMNS:
+                    found.add("open" if key in OPEN_COLUMNS else "close")
+                elif key in defs and key not in seen and depth < 6:
+                    found.update(price_provenance(defs[key], defs, depth + 1, seen | {key}))
+        elif isinstance(node, ast.Attribute) and node.attr in CLOSE_COLUMNS | OPEN_COLUMNS:
+            found.add("open" if node.attr in OPEN_COLUMNS else "close")
+        elif isinstance(node, ast.Name) and node.id in defs and node.id not in seen and depth < 6:
+            found.update(price_provenance(defs[node.id], defs, depth + 1, seen | {node.id}))
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+
+    visit(expr)
+    return found
+
+
 @register
 class MissingExecutionLag(StaticRule):
     id = "QP010"
-    title = "Missing execution lag (signal × same-period return)"
-    pass_title = "Signals are lagged before being multiplied by returns"
-    why = (
-        "Multiplying a signal at time t by the return realized over the same period t "
-        "(close[t-1] → close[t]) credits the strategy with a move that already happened when "
-        "the signal was computed from close[t]. This is one of the most common look-ahead bugs."
-    )
-    remediation = "Lag positions before applying returns: returns * signal.shift(1) (or more)."
 
     def check(self, ctx: ModuleContext) -> list[Finding]:
         out = []
+        defs = _definitions(ctx)
         for node, sig, ret in _strategy_return_products(ctx):
             if _has_positive_shift(sig):
                 continue
@@ -963,32 +967,44 @@ class MissingExecutionLag(StaticRule):
                 continue
             if _has_positive_shift(ret):
                 continue  # both shifted (e.g. returns.shift(1) * signal) – ambiguous, skip
-            out.append(
-                self.finding(
-                    ctx,
-                    node,
-                    Severity.FAIL,
-                    f"'{ast.unparse(node)[:80]}' multiplies an un-lagged signal by same-period "
-                    "returns.",
-                    confidence=Confidence.MEDIUM,
+            sig_src = price_provenance(sig, defs)
+            ret_src = price_provenance(ret, defs)
+            evidence = {"signal_uses": sorted(sig_src), "returns_use": sorted(ret_src)}
+            text = ast.unparse(node)[:80]
+            if sig_src == {"open"} and "open" in ret_src:
+                continue  # decided at the open, earns open → close: same-bar is legitimate
+            if "close" in sig_src and ret_src == {"close"}:
+                out.append(
+                    self.finding(
+                        ctx,
+                        node,
+                        Severity.FAIL,
+                        f"'{text}' multiplies a signal computed from the bar's close by the return "
+                        "that ends at that same close.",
+                        confidence=Confidence.HIGH,
+                        evidence=evidence,
+                        usage=Usage.LIVE_DECISION,
+                    )
                 )
-            )
+            else:
+                out.append(
+                    self.finding(
+                        ctx,
+                        node,
+                        Severity.WARN,
+                        f"'{text}' multiplies an un-lagged signal by same-period returns. Execution "
+                        "semantics could not be determined automatically (the price inputs of the "
+                        "signal or the returns could not be traced).",
+                        confidence=Confidence.LOW,
+                        evidence=evidence,
+                    )
+                )
         return out
 
 
 @register
 class MissingTransactionCosts(StaticRule):
     id = "QP011"
-    title = "Transaction cost model missing"
-    pass_title = "Transaction costs referenced or not applicable"
-    why = (
-        "Gross backtest returns ignore commissions, spread, slippage and impact. High-turnover "
-        "strategies can look profitable gross and lose money net."
-    )
-    remediation = (
-        "Subtract costs proportional to turnover (quantproof.execution.TransactionCostModel) or "
-        "declare cost assumptions in EXECUTION = {'commission_bps': ..., 'slippage_bps': ...}."
-    )
 
     def check(self, ctx: ModuleContext) -> list[Finding]:
         products = _strategy_return_products(ctx)
@@ -1040,23 +1056,20 @@ class MissingTransactionCosts(StaticRule):
 @register
 class FutureReturnsAsFeatures(StaticRule):
     id = "QP012"
-    title = "Future returns used as model features"
-    pass_title = "No future-derived model features detected"
-    why = (
-        "A feature built from future prices or returns (typically the label itself, or a shifted "
-        "copy) gives the model perfect foresight during fitting and evaluation."
-    )
-    remediation = "Build features from information available at or before each row's timestamp."
 
     def check(self, ctx: ModuleContext) -> list[Finding]:
         # One finding per set of origins, anchored at the first sink; later sinks
         # reached by the same future-derived data are listed in the evidence.
+        # Only definite future constructs count; heuristic full-sample normalization (QP007)
+        # is reported by its own rule.
+        definite = {"QP001", "QP002", "QP003", "QP015"}
         groups: dict[tuple[int, ...], list[TaintSink]] = {}
         for sink in ctx.sinks:
-            if sink.kind != "feature":
+            origins = [o for o in sink.origins if o.rule in definite]
+            if sink.kind != "feature" or not origins:
                 continue
-            key = tuple(sorted(id(o.node) for o in sink.origins))
-            groups.setdefault(key, []).append(sink)
+            key = tuple(sorted(id(o.node) for o in origins))
+            groups.setdefault(key, []).append(TaintSink(sink.kind, sink.node, origins, sink.detail))
         out = []
         for sinks in groups.values():
             sinks.sort(key=lambda s: getattr(s.node, "lineno", 0))
@@ -1078,6 +1091,7 @@ class FutureReturnsAsFeatures(StaticRule):
                     ),
                     confidence=Confidence.HIGH,
                     evidence={"origin_lines": lines, "sink_lines": sink_lines},
+                    usage=Usage.LIVE_DECISION,
                 )
             )
         return out
@@ -1125,16 +1139,6 @@ def _iter_len(node: ast.AST, ctx: ModuleContext) -> int | None:
 @register
 class ExcessiveSearch(StaticRule):
     id = "QP013"
-    title = "Excessive hyper-parameter search"
-    pass_title = "No large hyper-parameter search detected"
-    why = (
-        "The best of many backtests is biased upward even when no variant has skill. The number "
-        "of trials must be reported and corrected for (e.g. with the Deflated Sharpe Ratio)."
-    )
-    remediation = (
-        "Record every trial, pass the count to QuantProof (statistics.trials) so the Deflated "
-        "Sharpe Ratio accounts for it, and prefer coarse, economically motivated grids."
-    )
 
     def check(self, ctx: ModuleContext) -> list[Finding]:
         threshold = ctx.config.max_trials_threshold
@@ -1216,15 +1220,6 @@ class ExcessiveSearch(StaticRule):
 @register
 class NoOutOfSample(StaticRule):
     id = "QP014"
-    title = "No explicit out-of-sample evaluation"
-    pass_title = "Out-of-sample evaluation present or not applicable"
-    why = (
-        "Fitting or optimizing on the full sample and reporting the result measures how well the "
-        "procedure fits history, not how well it generalizes."
-    )
-    remediation = (
-        "Hold out a final test period, or evaluate with walk-forward / purged cross-validation."
-    )
 
     def check(self, ctx: ModuleContext) -> list[Finding]:
         fits = [c for c in ctx.calls if c.name in {"fit", "fit_transform"} and c.node.args]
@@ -1256,71 +1251,24 @@ class NoOutOfSample(StaticRule):
 @register
 class NonCausalTransform(StaticRule):
     id = "QP015"
-    title = "Potentially non-causal transformation"
-    pass_title = "No non-causal transformation detected"
-    why = (
-        "Zero-phase filters (filtfilt), Savitzky-Golay and Gaussian smoothing, HP filters, "
-        "seasonal decomposition, FFT filtering, linear interpolation and backward fills all use "
-        "observations after t to produce the value at t."
-    )
-    remediation = (
-        "Use one-sided (causal) filters such as lfilter or ewm, re-estimate decompositions on "
-        "expanding windows, and forward-fill only."
-    )
-
-    _ALWAYS: ClassVar[dict[str, str]] = {
-        "filtfilt": "zero-phase filtfilt",
-        "sosfiltfilt": "zero-phase sosfiltfilt",
-        "savgol_filter": "Savitzky-Golay filter (centered)",
-        "gaussian_filter1d": "Gaussian filter (centered)",
-        "hpfilter": "Hodrick-Prescott filter (two-sided)",
-        "seasonal_decompose": "seasonal decomposition (two-sided)",
-        "STL": "STL decomposition (two-sided)",
-        "detrend": "full-sample detrending",
-        "bfill": "backward fill",
-        "backfill": "backward fill",
-    }
 
     def check(self, ctx: ModuleContext) -> list[Finding]:
         out = []
         for c in ctx.calls:
-            desc = self._ALWAYS.get(c.name)
-            if c.name == "detrend" and not c.qualname.startswith("scipy"):
-                desc = None
-            if c.name == "fillna":
-                method = literal(get_kwarg(c.node, "method"))
-                if method in {"bfill", "backfill"}:
-                    desc = "fillna(method='bfill')"
-            if c.name == "interpolate":
-                method = literal(get_kwarg(c.node, "method"))
-                direction = literal(get_kwarg(c.node, "limit_direction"))
-                if method not in {"pad", "ffill"} or direction in {"backward", "both"}:
-                    desc = (
-                        f"interpolate(method={method if method is not NOT_LITERAL else 'linear'!r})"
-                    )
-            if c.name == "convolve" and c.qualname.startswith(("numpy", "np")):
-                mode = literal(get_kwarg(c.node, "mode"))
-                if len(c.node.args) > 2:
-                    mode = literal(c.node.args[2])
-                if mode == "same":
-                    desc = "np.convolve(mode='same') (centered kernel)"
-            if c.qualname.startswith(("numpy.fft", "np.fft", "scipy.fft")):
-                desc = "FFT-based transform over the whole sample"
+            desc = non_causal_description(c.node, c.name, c.qualname)
             if desc:
                 out.append(
-                    self.finding(
+                    timing_finding(
+                        self,
                         ctx,
                         c.node,
-                        Severity.WARN,
-                        f"{desc} uses future observations to compute past values.",
-                        confidence=Confidence.MEDIUM,
+                        f"{desc} uses future observations to compute past values;",
+                        live_confidence=Confidence.MEDIUM,
                     )
                 )
         return out
 
 
-def list_rules() -> list[dict[str, str]]:
-    """Metadata for every registered static rule (for docs and the CLI)."""
-    return [
-        {"id": r.id, "title": r.title, "why": r.why, "remediation": r.remediation} for r in RULES
-    ]
+def list_rules() -> list[RuleSpec]:
+    """Registry metadata for every registered static rule."""
+    return [r.spec for r in RULES]
