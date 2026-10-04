@@ -106,7 +106,7 @@ def test_hash_deterministic_and_order_sensitive(seed):
 @settings(max_examples=25, suppress_health_check=[HealthCheck.too_slow])
 @given(
     st.integers(0, 10_000),
-    st.sampled_from(["additive", "multiplicative", "permutation", "shock"]),
+    st.sampled_from(["additive", "multiplicative", "permutation", "extreme"]),
     st.integers(0, 37),
 )
 def test_perturbation_leaves_past_untouched(seed, scheme, k):

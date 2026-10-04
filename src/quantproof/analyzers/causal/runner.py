@@ -34,24 +34,39 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from quantproof.analyzers.causal.perturbation import as_float_frame, perturb_future
+from quantproof.analyzers.causal.perturbation import as_float_frame, perturb_after
 from quantproof.config import CausalityConfig
-from quantproof.results import Category, Finding, Location
+from quantproof.errors import QuantProofInputError
+from quantproof.results import Category, Finding, Location, Usage
 from quantproof.severity import Confidence, Severity
 
 
 @dataclass
 class PerturbationTrial:
-    """Outcome of one (timestamp, scheme) perturbation."""
+    """Outcome of one (decision time, scheme) perturbation.
+
+    ``decision_time`` is the cutoff: every row after it was perturbed. For failed trials,
+    ``changed_at`` is the first decision at or before the cutoff that changed, with its
+    ``original`` and ``perturbed`` values (and the output ``column`` for multi-column or
+    multi-asset outputs); ``first_modified`` is the first future observation that was
+    perturbed.
+    """
 
     timestamp: str
-    position: int
     scheme: str
     status: str  # "pass", "fail", "error", "skipped"
     n_changed: int = 0
     first_changed: str | None = None
+    column: str | None = None
+    original: float | None = None
+    perturbed: float | None = None
+    first_modified: str | None = None
     max_abs_diff: float = 0.0
     error: str | None = None
+
+    @property
+    def decision_time(self) -> str:
+        return self.timestamp
 
 
 @dataclass
@@ -62,6 +77,8 @@ class CausalityReport:
     deterministic: bool = True
     control_sensitive: bool | None = None
     n_observations: int = 0
+    n_symbols: int = 1
+    seed: int = 0
     config: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -85,46 +102,68 @@ class CausalityReport:
             "deterministic": self.deterministic,
             "control_sensitive": self.control_sensitive,
             "n_observations": self.n_observations,
+            "n_symbols": self.n_symbols,
+            "seed": self.seed,
             "config": self.config,
             "trials": [t.__dict__ for t in self.trials],
         }
 
 
-def _to_frame(out: Any, index: pd.Index) -> pd.DataFrame:
-    if isinstance(out, pd.DataFrame):
-        return out.astype(float)
+def _iso(value: Any) -> str:
+    return (
+        pd.Timestamp(value).isoformat()
+        if isinstance(value, (pd.Timestamp, np.datetime64))
+        else str(value)
+    )
+
+
+def outputs_frame(out: Any, data: pd.DataFrame) -> pd.DataFrame:
+    """Normalize strategy output to a frame indexed by timestamp.
+
+    Series/DataFrames indexed by ``(timestamp, symbol)`` are unstacked to one column per
+    symbol; 1-D arrays must have one value per row of single-asset data.
+    """
     if isinstance(out, pd.Series):
+        if isinstance(out.index, pd.MultiIndex):
+            return out.astype(float).unstack(level=1)
         return out.astype(float).to_frame("output")
+    if isinstance(out, pd.DataFrame):
+        if isinstance(out.index, pd.MultiIndex):
+            return out.astype(float).unstack(level=1)
+        return out.astype(float)
     arr = np.asarray(out, dtype=float)
     if arr.ndim == 1:
         arr = arr[:, None]
-    return pd.DataFrame(arr, index=index[: arr.shape[0]])
+    if isinstance(data.index, pd.MultiIndex):
+        raise QuantProofInputError("Panel strategies must return a Series/DataFrame, not an array.")
+    return pd.DataFrame(arr, index=data.index[: arr.shape[0]])
 
 
 def _compare(
     base: pd.DataFrame, new: pd.DataFrame, cutoff: Any, rtol: float, atol: float
-) -> tuple[int, str | None, float]:
+) -> dict[str, Any] | None:
+    """Evidence about decisions at or before ``cutoff`` that differ; ``None`` if none do."""
     b = base.loc[base.index <= cutoff]
     n = new.reindex(index=b.index, columns=b.columns)
     bv = b.to_numpy(dtype=float)
     nv = n.to_numpy(dtype=float)
-    both_nan = np.isnan(bv) & np.isnan(nv)
-    close = np.isclose(bv, nv, rtol=rtol, atol=atol) | both_nan
-    changed_rows = ~close.all(axis=1)
-    n_changed = int(changed_rows.sum())
-    if n_changed == 0:
-        return 0, None, 0.0
-    first_label = b.index[int(np.argmax(changed_rows))]
-    first = (
-        pd.Timestamp(first_label).isoformat()
-        if isinstance(b.index, pd.DatetimeIndex)
-        else str(first_label)
-    )
+    same = np.isclose(bv, nv, rtol=rtol, atol=atol, equal_nan=True)
+    changed_rows = ~same.all(axis=1)
+    if not changed_rows.any():
+        return None
+    r = int(np.argmax(changed_rows))
+    c = int(np.argmax(~same[r]))
     with np.errstate(invalid="ignore"):
         diff = np.abs(bv - nv)
     diff = np.where(np.isnan(diff), np.inf, diff)
-    max_diff = float(np.max(diff[changed_rows]))
-    return n_changed, first, max_diff
+    return {
+        "n_changed": int(changed_rows.sum()),
+        "first_changed": _iso(b.index[r]),
+        "column": str(b.columns[c]),
+        "original": float(bv[r, c]),
+        "perturbed": float(nv[r, c]),
+        "max_abs_diff": float(np.max(diff[~same])),
+    }
 
 
 def run_causality_test(
@@ -134,13 +173,33 @@ def run_causality_test(
     *,
     seed: int = 42,
 ) -> CausalityReport:
-    """Run the future-perturbation test on ``func`` (which maps data → decisions)."""
+    """Run the future-perturbation test on ``func`` (which maps data → decisions).
+
+    ``data`` may be single-asset (DatetimeIndex) or a panel ((timestamp, symbol) MultiIndex);
+    decision times are distinct timestamps, and a perturbation changes every symbol's rows
+    after the decision time. The perturbation seed is ``config.seed`` if set, else ``seed``.
+    """
     cfg = config or CausalityConfig()
+    seed = cfg.seed if cfg.seed is not None else seed
     frame = as_float_frame(data)
-    n = len(frame)
-    report = CausalityReport(n_observations=n, config=cfg.model_dump())
-    base = _to_frame(func(frame.copy()), frame.index)
-    again = _to_frame(func(frame.copy()), frame.index)
+    times = (
+        pd.DatetimeIndex(
+            frame.index.get_level_values(0)
+            if isinstance(frame.index, pd.MultiIndex)
+            else frame.index
+        )
+        .unique()
+        .sort_values()
+    )
+    n = len(times)
+    n_symbols = (
+        frame.index.get_level_values(1).nunique() if isinstance(frame.index, pd.MultiIndex) else 1
+    )
+    report = CausalityReport(
+        n_observations=n, n_symbols=int(n_symbols), seed=seed, config=cfg.model_dump()
+    )
+    base = outputs_frame(func(frame.copy()), frame)
+    again = outputs_frame(func(frame.copy()), frame)
     if base.shape != again.shape or not np.allclose(
         base.to_numpy(dtype=float),
         again.to_numpy(dtype=float),
@@ -154,49 +213,39 @@ def run_causality_test(
         return report
     first = max(1, int(np.floor(cfg.min_history_fraction * n)))
     last = n - 2
-    if first > last:
-        first = last
+    first = min(first, last)
     positions = np.unique(np.linspace(first, last, num=cfg.n_timestamps).round().astype(int))
     rng = np.random.default_rng(seed)
     for k in positions:
-        cutoff = frame.index[int(k)]
+        cutoff = times[int(k)]
+        first_modified = _iso(times[int(k) + 1])
         for scheme in cfg.schemes:
-            ts = (
-                pd.Timestamp(cutoff).isoformat()
-                if isinstance(frame.index, pd.DatetimeIndex)
-                else str(cutoff)
-            )
+            ts = _iso(cutoff)
             if scheme == "permutation" and n - k - 1 < 2:
-                report.trials.append(PerturbationTrial(ts, int(k), scheme, "skipped"))
+                report.trials.append(PerturbationTrial(ts, scheme, "skipped"))
                 continue
-            perturbed = perturb_future(frame, int(k), scheme, magnitude=cfg.magnitude, seed=rng)
+            perturbed = perturb_after(frame, cutoff, scheme, magnitude=cfg.magnitude, seed=rng)
             try:
-                out = _to_frame(func(perturbed.copy()), frame.index)
-            except Exception as exc:  # strategy failed on perturbed data
+                out = outputs_frame(func(perturbed.copy()), frame)
+            except Exception as exc:  # the strategy failed on perturbed data
                 report.trials.append(
-                    PerturbationTrial(
-                        ts, int(k), scheme, "error", error=f"{type(exc).__name__}: {exc}"
-                    )
+                    PerturbationTrial(ts, scheme, "error", error=f"{type(exc).__name__}: {exc}")
                 )
                 continue
-            n_changed, first_changed, max_diff = _compare(base, out, cutoff, cfg.rtol, cfg.atol)
-            report.trials.append(
-                PerturbationTrial(
-                    ts,
-                    int(k),
-                    scheme,
-                    "fail" if n_changed else "pass",
-                    n_changed,
-                    first_changed,
-                    max_diff,
+            ev = _compare(base, out, cutoff, cfg.rtol, cfg.atol)
+            if ev is None:
+                report.trials.append(
+                    PerturbationTrial(ts, scheme, "pass", first_modified=first_modified)
                 )
-            )
-    # Control: perturb everything after the first row; the output should change.
+            else:
+                report.trials.append(
+                    PerturbationTrial(ts, scheme, "fail", first_modified=first_modified, **ev)
+                )
+    # Control: perturb everything after the first timestamp; the output should change.
     try:
-        control = perturb_future(frame, 0, "shock", seed=np.random.default_rng(seed + 1))
-        out = _to_frame(func(control.copy()), frame.index)
-        changed, _, _ = _compare(base, out, frame.index[-1], cfg.rtol, cfg.atol)
-        report.control_sensitive = changed > 0
+        control = perturb_after(frame, times[0], "extreme", seed=np.random.default_rng(seed + 1))
+        out = outputs_frame(func(control.copy()), frame)
+        report.control_sensitive = _compare(base, out, times[-1], cfg.rtol, cfg.atol) is not None
     except Exception:
         report.control_sensitive = None
     return report
@@ -227,8 +276,9 @@ def causality_findings(report: CausalityReport, *, source: str | None = None) ->
     fails = [t for t in report.trials if t.status == "fail"]
     tested = [t for t in report.trials if t.status in {"pass", "fail"}]
     if fails:
-        earliest = min(fails, key=lambda t: t.position)
+        earliest = min(fails, key=lambda t: t.timestamp)
         by_scheme = sorted({t.scheme for t in fails})
+        col = f" [{earliest.column}]" if earliest.column not in (None, "output") else ""
         findings.append(
             Finding(
                 id="QP-CAUSAL-001",
@@ -236,10 +286,13 @@ def causality_findings(report: CausalityReport, *, source: str | None = None) ->
                 severity=Severity.FAIL,
                 title="Future perturbation changed historical decisions",
                 message=(
-                    f"FAIL: historical decision changed after future-data perturbation in "
+                    f"Historical decisions changed after future-data perturbation in "
                     f"{len(fails)} of {len(tested)} trials (schemes: {', '.join(by_scheme)}). "
-                    f"Example: perturbing data after {earliest.timestamp} changed "
-                    f"{earliest.n_changed} earlier decision(s), first at {earliest.first_changed}."
+                    f"Example: data from {earliest.first_modified} onward was perturbed "
+                    f"({earliest.scheme}); the decision at {earliest.first_changed}{col} changed "
+                    f"from {earliest.original:.6g} to {earliest.perturbed:.6g} "
+                    f"({earliest.n_changed} decision(s) at or before {earliest.timestamp} changed). "
+                    "FORBIDDEN IN LIVE DECISION."
                 ),
                 evidence={
                     "n_fail": len(fails),
@@ -248,6 +301,7 @@ def causality_findings(report: CausalityReport, *, source: str | None = None) ->
                     "examples": [t.__dict__ for t in fails[:5]],
                 },
                 location=loc,
+                usage=Usage.LIVE_DECISION,
                 why_it_matters=(
                     "A decision at time t that depends on data after t could not have been made "
                     "in real time; the backtest performance is contaminated by look-ahead."
@@ -269,7 +323,7 @@ def causality_findings(report: CausalityReport, *, source: str | None = None) ->
                 title="Past decisions invariant to future perturbations",
                 message=(
                     f"No decision at or before t changed in {len(tested)} perturbation trials "
-                    f"across {len({t.position for t in tested})} timestamps "
+                    f"across {len({t.timestamp for t in tested})} decision times "
                     f"({', '.join(sorted({t.scheme for t in tested}))}). This is evidence "
                     "against, not proof of absence of, look-ahead."
                 ),
