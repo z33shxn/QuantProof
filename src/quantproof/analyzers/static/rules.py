@@ -270,7 +270,7 @@ class FutureOrientedConstruction(StaticRule):
         for c in ctx.calls:
             if c.name == "roll" and c.qualname.startswith(("numpy", "np")):
                 shift = c.node.args[1] if len(c.node.args) > 1 else get_kwarg(c.node, "shift")
-                neg, _ = is_negative_expr(shift)
+                neg, _ = is_negative_expr(shift, ctx.module_constants)
                 if not neg:
                     out.append(
                         self.finding(

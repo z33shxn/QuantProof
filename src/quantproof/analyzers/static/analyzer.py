@@ -104,16 +104,22 @@ def get_kwarg(call: ast.Call, name: str) -> ast.expr | None:
     return None
 
 
-def is_negative_expr(node: ast.AST | None) -> tuple[bool, bool]:
+def is_negative_expr(
+    node: ast.AST | None, constants: dict[str, Any] | None = None
+) -> tuple[bool, bool]:
     """Return ``(is_negative, certain)`` for a shift-period expression.
 
     ``shift(-1)`` → (True, True); ``shift(-n)`` → (True, False); ``shift(1)`` → (False, True).
+    A bare name bound to a module-level numeric constant (``HORIZON = -5``) is resolved
+    through ``constants``.
     """
     if node is None:
         return False, True
     value = literal(node)
+    if value is NOT_LITERAL and isinstance(node, ast.Name) and constants:
+        value = constants.get(node.id, NOT_LITERAL)
     if value is not NOT_LITERAL:
-        return isinstance(value, (int, float)) and value < 0, True
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and value < 0, True
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return True, False
     return False, False
@@ -649,7 +655,7 @@ class _TaintAnalysis:
                 args = args[1:]
         if name in SHIFT_LIKE:
             period = args[0] if args else get_kwarg(call, "periods")
-            neg, _certain = is_negative_expr(period)
+            neg, _certain = is_negative_expr(period, self.ctx.module_constants)
             if neg:
                 via = (
                     f" (via alias '{call.func.id}')"
@@ -661,7 +667,7 @@ class _TaintAnalysis:
             return self._origin("QP002", call, "centered rolling window")
         if name == "roll" and qual.startswith(("numpy", "np")):
             shift = call.args[1] if len(call.args) > 1 else get_kwarg(call, "shift")
-            neg, _ = is_negative_expr(shift)
+            neg, _ = is_negative_expr(shift, self.ctx.module_constants)
             if neg:
                 return self._origin("QP003", call, "np.roll with a negative shift")
         if name in {"zscore", "scale", "minmax_scale", "robust_scale"} and (

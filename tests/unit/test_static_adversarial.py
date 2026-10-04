@@ -34,6 +34,14 @@ def worst(src: str, rule: str) -> Severity | None:
 
 
 ADVERSARIAL = {
+    "period_in_module_constant": (
+        "QP001",
+        """
+        HORIZON = -1
+        def generate_signals(df):
+            return df['close'].shift(HORIZON)
+    """,
+    ),
     "future_in_helper": (
         "QP001",
         """
