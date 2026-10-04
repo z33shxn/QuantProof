@@ -48,7 +48,7 @@ def embargo_ns(embargo: Any) -> int:
     return int(td.value)
 
 
-def embargo_size(n_samples: int, embargo: float | int) -> int:
+def embargo_size(n_samples: int, embargo: EmbargoSpec) -> int:
     """Number of bars embargoed after each test block.
 
     Fractions in ``[0, 1)`` are interpreted as a share of ``n_samples``; integers
