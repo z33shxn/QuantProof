@@ -20,10 +20,8 @@ Sub-packages expose the building blocks directly::
 
 from quantproof._version import __version__
 from quantproof.adapters import PandasAdapter, ResearchArtifacts
-from quantproof.audit.engine import audit
-from quantproof.audit.models import AuditResult, Category, Finding
-from quantproof.audit.severity import Confidence, Severity
 from quantproof.config import AuditConfig
+from quantproof.engine import audit
 from quantproof.errors import (
     QuantProofConfigError,
     QuantProofDataError,
@@ -31,6 +29,8 @@ from quantproof.errors import (
     QuantProofInputError,
     QuantProofStrategyError,
 )
+from quantproof.results import AuditResult, Category, Finding
+from quantproof.severity import Confidence, Severity
 from quantproof.strategy import StrategySpec, load_strategy
 
 __all__ = [

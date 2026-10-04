@@ -2,12 +2,12 @@
 
 The analyzer parses source code once into a :class:`ModuleContext` that exposes
 pre-computed facts (resolved call names, scopes, a future-information taint
-analysis, split events, ...). Each rule in :mod:`quantproof.audit.static.rules`
+analysis, split events, ...). Each rule in :mod:`quantproof.analyzers.static.rules`
 inspects that context and emits findings.
 
 Static analysis is heuristic by nature: it reasons about syntax, not about the
 values flowing at runtime. Findings therefore carry a confidence level, and the
-runtime future-perturbation test (:mod:`quantproof.audit.causal`) provides
+runtime future-perturbation test (:mod:`quantproof.analyzers.causal`) provides
 complementary behavioural evidence.
 
 Inline suppression: append ``# quantproof: ignore[QP001]`` (or ``ignore`` for all
@@ -25,9 +25,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from quantproof.audit.models import Category, Finding, Location
-from quantproof.audit.severity import Severity
 from quantproof.config import StaticConfig
+from quantproof.results import Category, Finding, Location
+from quantproof.severity import Severity
 
 SIGNAL_NAME_RE = re.compile(
     r"(^|_)(signal|signals|sig|position|positions|pos|weight|weights|holding|holdings|"
@@ -657,7 +657,7 @@ def analyze_source(
     include_passes: bool = True,
 ) -> list[Finding]:
     """Run every registered static rule on ``source``."""
-    from quantproof.audit.static.rules import RULES
+    from quantproof.analyzers.static.rules import RULES
 
     cfg = config or StaticConfig()
     try:

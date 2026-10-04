@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantproof.audit.severity import Severity
 from quantproof.config import DataValidationConfig
 from quantproof.data import (
     generate_prices,
@@ -18,6 +17,7 @@ from quantproof.data import (
 )
 from quantproof.data.loaders import parse_timestamps
 from quantproof.errors import QuantProofDataError
+from quantproof.severity import Severity
 
 
 def by_id(findings):

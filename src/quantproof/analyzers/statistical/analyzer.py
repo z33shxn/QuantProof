@@ -25,9 +25,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from quantproof.audit.models import Category, Finding
-from quantproof.audit.severity import Confidence, Severity
 from quantproof.config import StatisticsConfig
+from quantproof.results import Category, Finding
+from quantproof.severity import Confidence, Severity
 from quantproof.statistics.bootstrap import bootstrap_sharpe
 from quantproof.statistics.deflated_sharpe import deflated_sharpe_ratio
 from quantproof.statistics.probabilistic_sharpe import (

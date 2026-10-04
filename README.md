@@ -192,9 +192,9 @@ analysis and results mode (`returns=`, `trial_returns=`, or
 | Area | Checks | Implementation |
 |---|---|---|
 | Data quality | `QP-DATA-001…013`: invalid, unsorted, duplicated timestamps; missing/impossible OHLC; non-positive prices; nulls; unexplained gaps; timezone mixtures; forward-filled (stale) prices; infinities; extreme returns | `quantproof.data.validate_data` |
-| Static code analysis | `QP001…QP015`: negative shifts, centered windows, look-ahead indexing, shuffled splits and CV, fit-before-split, full-sample normalization, target leakage, same-bar execution, missing execution lag, missing costs, future-derived features, large searches, no OOS evaluation, non-causal transforms | AST + taint analysis, `quantproof.audit.static` |
-| Runtime causality | `QP-CAUSAL-001…004`: perturb data strictly after *t* (additive, multiplicative, permutation, extreme shocks) and verify decisions at or before *t* do not change | `quantproof.audit.causal` |
-| Leakage (values) | `QP-LEAK-001…003`: features replicating the target or future returns; implausible directional accuracy | `quantproof.audit.leakage` |
+| Static code analysis | `QP001…QP015`: negative shifts, centered windows, look-ahead indexing, shuffled splits and CV, fit-before-split, full-sample normalization, target leakage, same-bar execution, missing execution lag, missing costs, future-derived features, large searches, no OOS evaluation, non-causal transforms | AST + taint analysis, `quantproof.analyzers.static` |
+| Runtime causality | `QP-CAUSAL-001…004`: perturb data strictly after *t* (additive, multiplicative, permutation, extreme shocks) and verify decisions at or before *t* do not change | `quantproof.analyzers.causal` |
+| Leakage (values) | `QP-LEAK-001…003`: features replicating the target or future returns; implausible directional accuracy | `quantproof.analyzers.leakage` |
 | Execution realism | `QP-EXEC-001…005`: naive vs declared vs realistic scenarios, lag sensitivity, cost sensitivity and break-even cost, turnover, signal/execution timestamps | `quantproof.execution` |
 | Statistics | `QP-STAT-001…007`: sample size, PSR, DSR, implausible Sharpe, undeclared trials, non-normality, serial correlation (Lo-adjusted Sharpe) | `quantproof.statistics` |
 | Validation / selection | `QP-VAL-001…004`: walk-forward selection, PBO (CSCV), CPCV paths, White Reality Check / Hansen SPA | `quantproof.validation`, `quantproof.statistics` |

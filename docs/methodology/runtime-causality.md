@@ -9,7 +9,7 @@ at time t must not depend on data after t.** That property can be tested directl
 
 ## Implementation
 
-`quantproof.audit.causal.run_causality_test(func, data, config)`:
+`quantproof.analyzers.causal.run_causality_test(func, data, config)`:
 
 1. Integer columns are cast to float, and the **baseline** is computed on that same frame
    (dtype changes can never masquerade as violations).
@@ -25,7 +25,7 @@ at time t must not depend on data after t.** That property can be tested directl
 6. A **control** run perturbs everything after the first row; if outputs never change,
    the strategy ignores its input and the test carries no information (QP-CAUSAL-004).
 
-Perturbation schemes (`quantproof.audit.causal.perturbation`):
+Perturbation schemes (`quantproof.analyzers.causal.perturbation`):
 
 | Scheme | Rows > k become |
 |---|---|

@@ -16,11 +16,11 @@ import numpy as np
 import pandas as pd
 
 from quantproof._utils import datetime_ns
-from quantproof.audit.models import Category, Finding, Location
-from quantproof.audit.severity import Confidence, Severity
 from quantproof.config import DataValidationConfig
 from quantproof.data.loaders import ParsedTimestamps, parse_timestamps, resolve_timestamp_column
 from quantproof.data.schemas import OHLC_COLUMNS, PRICE_COLUMNS, primary_price_column
+from quantproof.results import Category, Finding, Location
+from quantproof.severity import Confidence, Severity
 
 
 @dataclass

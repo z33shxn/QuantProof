@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from quantproof._utils import format_number
-from quantproof.audit.models import Category
-from quantproof.audit.severity import Severity
 from quantproof.experiments.manifest import manifest_to_yaml
 from quantproof.reports.text import SECTION_TITLES
+from quantproof.results import Category
+from quantproof.severity import Severity
 
 if TYPE_CHECKING:
-    from quantproof.audit.models import AuditResult
+    from quantproof.results import AuditResult
 
 _BADGE = {
     Severity.FAIL: "🔴 FAIL",

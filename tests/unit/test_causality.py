@@ -6,10 +6,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantproof.audit.causal import SCHEMES, causality_findings, perturb_future, run_causality_test
-from quantproof.audit.severity import Severity
+from quantproof.analyzers.causal import (
+    SCHEMES,
+    causality_findings,
+    perturb_future,
+    run_causality_test,
+)
 from quantproof.config import CausalityConfig
 from quantproof.errors import QuantProofInputError
+from quantproof.severity import Severity
 
 
 def causal(d):

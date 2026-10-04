@@ -9,7 +9,7 @@ from quantproof.reports.markdown import render_markdown
 from quantproof.reports.text import render_text
 
 if TYPE_CHECKING:
-    from quantproof.audit.models import AuditResult
+    from quantproof.results import AuditResult
 
 FORMATS = ("html", "json", "markdown", "text")
 

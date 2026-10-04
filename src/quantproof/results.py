@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from quantproof._utils import to_jsonable
-from quantproof.audit.severity import VERDICT_RULES, Confidence, Severity
+from quantproof.severity import VERDICT_RULES, Confidence, Severity
 
 
 class Category:

@@ -2,7 +2,7 @@
 
 Every rule is a small class with metadata (id, title, why it matters, remediation)
 and a ``check`` method that receives a pre-built
-:class:`~quantproof.audit.static.analyzer.ModuleContext`. New rules are added
+:class:`~quantproof.analyzers.static.analyzer.ModuleContext`. New rules are added
 with the :func:`register` decorator; no other module needs to change.
 
 Severity policy
@@ -23,9 +23,7 @@ import re
 from abc import ABC, abstractmethod
 from typing import ClassVar
 
-from quantproof.audit.models import Category, Finding, Location
-from quantproof.audit.severity import Confidence, Severity
-from quantproof.audit.static.analyzer import (
+from quantproof.analyzers.static.analyzer import (
     COST_TOKEN_RE,
     FIT_METHODS,
     FUTURE_NAME_RE,
@@ -45,6 +43,8 @@ from quantproof.audit.static.analyzer import (
     names_in,
     string_keys_in,
 )
+from quantproof.results import Category, Finding, Location
+from quantproof.severity import Confidence, Severity
 
 
 class StaticRule(ABC):

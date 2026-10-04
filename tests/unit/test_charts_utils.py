@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib
+import importlib.util
 import json
-import math
 from enum import Enum
 from pathlib import Path
 
@@ -102,9 +102,10 @@ def test_small_utils():
         clean_returns([1.0, np.nan], nan_policy="bogus")
 
 
-def test_lazy_audit_exports():
-    audit_pkg = importlib.import_module("quantproof.audit")
-    assert callable(audit_pkg.audit) and audit_pkg.LIMITATIONS
-    with pytest.raises(AttributeError):
-        _ = audit_pkg.not_a_thing
-    assert math.isfinite(1.0)
+def test_public_namespace_is_unambiguous():
+    import quantproof
+    import quantproof.engine
+
+    assert quantproof.audit is quantproof.engine.audit
+    assert callable(quantproof.audit)
+    assert not importlib.util.find_spec("quantproof.audit")  # no sub-package of the same name

@@ -8,9 +8,15 @@ from pathlib import Path
 
 import pytest
 
-from quantproof.audit.severity import Severity
-from quantproof.audit.static import RULES, analyze_file, analyze_path, analyze_source, list_rules
+from quantproof.analyzers.static import (
+    RULES,
+    analyze_file,
+    analyze_path,
+    analyze_source,
+    list_rules,
+)
 from quantproof.config import StaticConfig
+from quantproof.severity import Severity
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 

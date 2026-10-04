@@ -34,10 +34,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from quantproof.audit.models import Category, Finding
-from quantproof.audit.severity import Confidence, Severity
 from quantproof.config import StatisticsConfig, ValidationConfig
 from quantproof.errors import QuantProofInputError
+from quantproof.results import Category, Finding
+from quantproof.severity import Confidence, Severity
 from quantproof.statistics.pbo import probability_of_backtest_overfitting
 from quantproof.statistics.reality_check import reality_check
 from quantproof.statistics.sharpe import sharpe_ratio, sharpe_ratios

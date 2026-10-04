@@ -8,13 +8,13 @@ from typing import TYPE_CHECKING, Any
 
 from jinja2 import Environment, select_autoescape
 
-from quantproof.audit.models import Category
 from quantproof.experiments.manifest import manifest_to_yaml
 from quantproof.reports.charts import bar_chart, heatmap, histogram, line_chart
 from quantproof.reports.json import render_json
+from quantproof.results import Category
 
 if TYPE_CHECKING:
-    from quantproof.audit.models import AuditResult
+    from quantproof.results import AuditResult
 
 SYMBOLS = {"PASS": "✓", "INFO": "·", "WARN": "⚠", "FAIL": "✗"}
 SECTION_KEYS = (
