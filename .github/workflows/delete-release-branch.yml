@@ -1,0 +1,30 @@
+# Temporary one-shot workflow: deletes the merged release/0.1.0-hardening branch.
+# Removed again right after the deletion is verified.
+name: Delete merged release branch
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/delete-release-branch.yml]
+
+permissions:
+  contents: write
+
+env:
+  BRANCH: release/0.1.0-hardening
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the branch is fully merged and v0.1.0 exists
+        run: |
+          git ls-remote --exit-code --tags origin refs/tags/v0.1.0
+          git merge-base --is-ancestor "origin/$BRANCH" origin/main
+
+      - name: Delete the branch
+        run: git push origin --delete "$BRANCH"
