@@ -125,6 +125,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "NPY", "PD", "RUF", "C4", "PIE",
 ignore = [
   "E501",   # the formatter enforces line length; long message strings are allowed
   "PD101",  # nunique() > 1 is clearer than the suggested idiom
+  "PD010",  # unstack is the natural (timestamp, symbol) -> wide reshape
   "PD011",  # .values is used deliberately on numpy-backed series
   "RUF001", # box-drawing characters in CLI output are intentional
   "RUF002",
