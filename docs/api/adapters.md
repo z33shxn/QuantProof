@@ -63,14 +63,14 @@ maps those exports with explicit column names; it never imports an engine.
 from quantproof import GenericResultsAdapter, audit
 
 adapter = GenericResultsAdapter(
-    equity_column="equity",          # or returns_column="returns"
-    returns_are="net",               # required: "net" (after costs) or "gross"
+    equity_column="equity",  # or returns_column="returns"
+    returns_are="net",  # required: "net" (after costs) or "gross"
     trade_columns={"signal_time": "decision_ts", "execution_time": "fill_ts"},
 )
 artifacts = adapter.load(
-    "exports/equity.csv",            # DataFrame, Series or CSV/Parquet path
+    "exports/equity.csv",  # DataFrame, Series or CSV/Parquet path
     trades="exports/trades.csv",
-    trial_returns="exports/all_variants.parquet",   # optional, enables PBO/DSR/CPCV/SPA
+    trial_returns="exports/all_variants.parquet",  # optional, enables PBO/DSR/CPCV/SPA
     metadata={"engine": "my-engine 2.3"},
 )
 result = audit(artifacts=artifacts)

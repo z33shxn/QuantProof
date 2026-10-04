@@ -124,14 +124,14 @@ def generate_signals(data: pd.DataFrame, fast: int = 20, slow: int = 100) -> pd.
 
 result = audit(strategy=generate_signals, data=prices, config=AuditConfig(profile="quick"))
 
-print(result.status)                         # Severity.PASS / WARN / FAIL
-print(result.narrative.primary_reason)       # the most important finding, in words
-for finding in result.issues:                # WARN and FAIL findings
+print(result.status)  # Severity.PASS / WARN / FAIL
+print(result.narrative.primary_reason)  # the most important finding, in words
+for finding in result.issues:  # WARN and FAIL findings
     print(finding.severity.value, finding.id, finding.title)
-result.statistics["dsr"]                     # DSR with trial provenance
-result.execution["cost_attribution"]         # gross → each cost → net
-result.reproducibility["fingerprints"]       # code / data / config / environment hashes
-html = result.to_html()                      # also to_markdown(), to_json()
+result.statistics["dsr"]  # DSR with trial provenance
+result.execution["cost_attribution"]  # gross → each cost → net
+result.reproducibility["fingerprints"]  # code / data / config / environment hashes
+html = result.to_html()  # also to_markdown(), to_json()
 ```
 
 More runnable examples: [docs/api/key-objects.md](docs/api/key-objects.md).
@@ -163,7 +163,7 @@ A strategy file exposes one function; everything else is optional plain-literal 
 
 ```python
 NAME = "dual_ma_trend"
-PARAMETERS = {"fast": 20, "slow": 100}                                # defaults
+PARAMETERS = {"fast": 20, "slow": 100}  # defaults
 PARAM_GRID = {"fast": [10, 20, 30, 40], "slow": [60, 100, 140, 180]}  # every variant tried
 EXECUTION = {"signal_lag": 1, "commission_bps": 1.0, "spread_bps": 2.0, "slippage_bps": 2.0}
 

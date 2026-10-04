@@ -9,7 +9,6 @@ import time
 from collections.abc import Callable
 
 import numpy as np
-
 import pandas as pd
 
 from quantproof import AuditConfig, audit

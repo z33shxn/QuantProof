@@ -15,10 +15,11 @@ days). The draft is `examples/proof_of_value/flawed_strategy.py`.
 ```python
 EXECUTION = {"signal_lag": 0, "fill": "close", "commission_bps": 0.0}
 
+
 def generate_signals(data, lookback=120, n_side=2):
     close = data["close"].unstack("symbol")
     momentum = close.pct_change(lookback)
-    smooth = momentum.rolling(5, center=True).mean()   # "denoise" the score
+    smooth = momentum.rolling(5, center=True).mean()  # "denoise" the score
     ranks = smooth.rank(axis=1, method="first")
     ...
 ```

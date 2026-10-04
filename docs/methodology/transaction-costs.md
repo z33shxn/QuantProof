@@ -50,7 +50,11 @@ impact_coefficient, tax_bps)` builds the common model. Composition is explicit:
 
 ```python
 from quantproof.execution import (
-    BpsCommission, FixedSlippage, FixedSpread, SquareRootImpact, TransactionCostModel,
+    BpsCommission,
+    FixedSlippage,
+    FixedSpread,
+    SquareRootImpact,
+    TransactionCostModel,
     TransactionTax,
 )
 
@@ -58,11 +62,11 @@ model = TransactionCostModel.compose(
     commission=BpsCommission(1),
     spread=FixedSpread(4),
     slippage=FixedSlippage(2),
-    impact=SquareRootImpact(0.1),   # None disables a component
+    impact=SquareRootImpact(0.1),  # None disables a component
     taxes=TransactionTax(5, side="buy"),
 )
-model.without("impact")             # drop a component
-model.scaled(2.0)                   # every component x2 (sensitivity analysis)
+model.without("impact")  # drop a component
+model.scaled(2.0)  # every component x2 (sensitivity analysis)
 ```
 
 ### Execution semantics
