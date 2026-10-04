@@ -168,8 +168,19 @@ class AuditSummary(BaseModel):
     narrative: Narrative | None = None
 
 
-# Issues in these categories invalidate everything computed downstream of the signals.
-_UPSTREAM = ("causality", "static", "leakage", "data")
+# Priority of categories when choosing the primary reason: issues that invalidate everything
+# downstream of the signals first, then execution, then out-of-sample/selection evidence.
+_UPSTREAM = (
+    "causality",
+    "static",
+    "leakage",
+    "data",
+    "execution",
+    "validation",
+    "statistics",
+    "regime",
+    "sensitivity",
+)
 _CONFIDENCE_RANK = {"high": 0, "medium": 1, "low": 2, None: 3}
 
 

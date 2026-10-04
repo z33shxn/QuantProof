@@ -77,6 +77,30 @@ def test_unrealistic_execution_is_caught():
     assert ex["headline_retained_under_audit"] < 0.25
 
 
+UNIVERSE = ROOT / "examples/data/universe.parquet"
+
+
+def test_cross_sectional_momentum_has_no_validity_failures():
+    res = run("cross_sectional_momentum", UNIVERSE, profile="quick")
+    assert res.ids(Severity.FAIL) == set()
+    assert [f for f in res.by_category("static") if f.is_issue] == []
+    assert "QP-CAUSAL-001" in res.ids(Severity.PASS)
+    assert res.sections["overview"]["n_symbols"] == 10
+    assert res.statistics["trials"]["source"] == "PARAM_GRID size"
+    assert res.statistics["dsr"]["n_trials"] == 36
+
+
+def test_proof_of_value_flaws_are_caught_and_fixed():
+    flawed = audit(
+        ROOT / "examples/proof_of_value/flawed_strategy.py",
+        UNIVERSE,
+        config=AuditConfig(profile="quick"),
+    )
+    assert {"QP002", "QP-CAUSAL-001"} <= flawed.ids(Severity.FAIL)
+    assert {"QP009", "QP011"} <= flawed.ids(Severity.WARN)
+    assert flawed.narrative.primary_reason.startswith("FAIL")
+
+
 def test_clean_audit_is_reproducible(clean):
     again = run("clean_strategy")
     assert again.manifest["content_hash"] == clean.manifest["content_hash"]

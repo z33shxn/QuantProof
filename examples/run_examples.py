@@ -19,6 +19,7 @@ EXAMPLES = {
     "leakage_strategy": "prices.parquet",
     "overfit_strategy": "noise.parquet",
     "unrealistic_execution": "prices.parquet",
+    "cross_sectional_momentum": "universe.parquet",
 }
 
 
