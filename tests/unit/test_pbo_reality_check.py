@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from quantproof.errors import QuantProofInputError
+from quantproof.severity import Severity
 from quantproof.statistics import adjust_pvalues, probability_of_backtest_overfitting, reality_check
 from quantproof.statistics.pbo import interpret_pbo
 
@@ -131,3 +132,55 @@ def test_adjust_pvalues_reference_values():
         adjust_pvalues([1.5])
     with pytest.raises(QuantProofInputError):
         adjust_pvalues([0.1], "nope")  # type: ignore[arg-type]
+
+
+def _folds(sharpes):
+    return [{"fold": i, "oos_sharpe": s} for i, s in enumerate(sharpes)]
+
+
+def test_oos_evidence_reports_each_failed_criterion():
+    from quantproof.analyzers.statistical.selection import oos_evidence, oos_finding
+
+    rng = np.random.default_rng(0)
+    good = pd.Series(np.tile([0.002, -0.001], 250))  # annualized Sharpe ≈ 5.3
+    ev = oos_evidence(
+        _folds([1.2, 0.8, 1.0, 0.6]),
+        good,
+        is_sharpe_mean=6.0,
+        periods_per_year=252,
+        min_observations=60,
+    )
+    assert ev["n_positive_folds"] == 4 and ev["share_positive_folds"] == 1.0
+    assert ev["n_observations"] == 500
+    assert ev["fold_sharpe_std"] == pytest.approx(np.std([1.2, 0.8, 1.0, 0.6], ddof=1))
+    assert ev["weak_reasons"] == []
+    assert oos_finding(ev, selection=True).severity is Severity.PASS
+
+    bad = oos_evidence(
+        _folds([0.5, -0.3, -0.2, -0.9]),
+        pd.Series(rng.normal(-0.001, 0.01, 40)),
+        is_sharpe_mean=2.0,
+        periods_per_year=252,
+        min_observations=60,
+    )
+    text = " ".join(bad["weak_reasons"])
+    assert "only 1 of 4 folds" in text
+    assert "out-of-sample observations" in text
+    f = oos_finding(bad, selection=False)
+    assert f.severity is Severity.WARN and "Weak out-of-sample evidence" in f.message
+    assert "score" not in f.evidence
+
+
+def test_oos_degradation_criterion():
+    from quantproof.analyzers.statistical.selection import oos_evidence
+
+    r = pd.Series(np.tile([0.002, -0.001], 200))  # positive, stable OOS
+    ev = oos_evidence(
+        _folds([1.0, 1.0]), r, is_sharpe_mean=1e6, periods_per_year=252, min_observations=10
+    )
+    assert ev["is_to_oos_ratio"] < 0.5
+    assert any("in-sample" in x for x in ev["weak_reasons"])
+    ev = oos_evidence(
+        _folds([1.0, 1.0]), r, is_sharpe_mean=-1.0, periods_per_year=252, min_observations=10
+    )
+    assert np.isnan(ev["is_to_oos_ratio"]) and ev["weak_reasons"] == []

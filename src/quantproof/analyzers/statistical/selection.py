@@ -19,8 +19,11 @@ test failed, these diagnostics inherit the contamination.
 
 Verdict rules (explicit)
 ------------------------
-* ``QP-VAL-001`` walk-forward: WARN if the OOS Sharpe is ≤ 0, or below 50 % of a positive
-  mean IS Sharpe.
+* ``QP-VAL-001`` out-of-sample evidence (no composite score; each criterion is reported):
+  WARN if the concatenated OOS Sharpe is ≤ 0, fewer than half of the folds have a positive
+  OOS Sharpe, the OOS Sharpe is below 50 % of a positive mean IS Sharpe, or the OOS sample
+  has fewer than ``min_observations`` bars. Fold dispersion (std of fold Sharpes) is
+  reported as evidence but is not a criterion on its own.
 * ``QP-VAL-002`` PBO: WARN if PBO ≥ 0.5.
 * ``QP-VAL-003`` CPCV: WARN if the median path Sharpe ≤ 0.
 * ``QP-VAL-004`` Reality Check: WARN if the SPA p-value > 1 − confidence.
@@ -101,6 +104,108 @@ def walk_forward_selection(
     }
 
 
+OOS_DEGRADATION_WARN = 0.5
+
+
+def oos_evidence(
+    folds: list[dict[str, Any]],
+    oos_returns: pd.Series,
+    *,
+    is_sharpe_mean: float | None,
+    periods_per_year: float,
+    min_observations: int,
+) -> dict[str, Any]:
+    """Out-of-sample evidence and the criteria (if any) that make it weak.
+
+    Returns observation count, concatenated OOS Sharpe, number and share of positive
+    folds, fold Sharpe median and dispersion, IS→OOS degradation (OOS / mean IS), and
+    ``weak_reasons`` — human-readable criteria that failed. No score is computed.
+    """
+    fold_sr = np.array([f["oos_sharpe"] for f in folds], dtype=float)
+    finite = fold_sr[np.isfinite(fold_sr)]
+    n_pos = int((finite > 0).sum())
+    oos_sr = sharpe_ratio(oos_returns, periods_per_year=periods_per_year)
+    n_obs = int(oos_returns.notna().sum())
+    degradation = (
+        oos_sr / is_sharpe_mean
+        if is_sharpe_mean is not None
+        and math.isfinite(is_sharpe_mean)
+        and is_sharpe_mean > 0
+        and math.isfinite(oos_sr)
+        else float("nan")
+    )
+    reasons: list[str] = []
+    if not math.isfinite(oos_sr) or oos_sr <= 0:
+        reasons.append(f"out-of-sample Sharpe is {oos_sr:.2f} (≤ 0)")
+    if len(fold_sr) and n_pos < len(fold_sr) / 2:
+        reasons.append(f"only {n_pos} of {len(fold_sr)} folds have a positive OOS Sharpe")
+    if math.isfinite(degradation) and degradation < OOS_DEGRADATION_WARN:
+        reasons.append(
+            f"OOS Sharpe is {degradation:.0%} of the mean in-sample Sharpe "
+            f"(< {OOS_DEGRADATION_WARN:.0%})"
+        )
+    if n_obs < min_observations:
+        reasons.append(f"only {n_obs} out-of-sample observations (< {min_observations})")
+    return {
+        "n_observations": n_obs,
+        "oos_sharpe": oos_sr,
+        "n_folds": len(fold_sr),
+        "n_positive_folds": n_pos,
+        "share_positive_folds": n_pos / len(fold_sr) if len(fold_sr) else float("nan"),
+        "fold_sharpe_median": float(np.median(finite)) if finite.size else float("nan"),
+        "fold_sharpe_std": float(np.std(finite, ddof=1)) if finite.size > 1 else float("nan"),
+        "is_sharpe_mean": is_sharpe_mean,
+        "is_to_oos_ratio": degradation,
+        "weak_reasons": reasons,
+        "criteria": {
+            "oos_sharpe_min": 0.0,
+            "min_share_positive_folds": 0.5,
+            "min_is_to_oos_ratio": OOS_DEGRADATION_WARN,
+            "min_observations": min_observations,
+        },
+    }
+
+
+def oos_finding(evidence: dict[str, Any], *, selection: bool) -> Finding:
+    """QP-VAL-001 from :func:`oos_evidence`."""
+    ev = evidence
+    reasons = ev["weak_reasons"]
+    what = (
+        "walk-forward selection (best training configuration per fold)"
+        if selection
+        else ("sequential test windows of the single strategy")
+    )
+    summary = (
+        f"{ev['n_positive_folds']} of {ev['n_folds']} folds positive; OOS Sharpe "
+        f"{ev['oos_sharpe']:.2f} over {ev['n_observations']} observations; fold Sharpe median "
+        f"{ev['fold_sharpe_median']:.2f}, dispersion (std) {ev['fold_sharpe_std']:.2f}"
+        + (
+            f"; OOS/IS ratio {ev['is_to_oos_ratio']:.2f}"
+            if math.isfinite(ev["is_to_oos_ratio"])
+            else ""
+        )
+        + "."
+    )
+    if reasons:
+        message = f"Weak out-of-sample evidence from {what}: " + "; ".join(reasons) + ". " + summary
+    else:
+        message = f"Out-of-sample evidence from {what}: " + summary
+    if not selection:
+        message += " Without a parameter grid, QuantProof cannot measure selection bias."
+    return Finding(
+        id="QP-VAL-001",
+        category=Category.VALIDATION,
+        severity=Severity.WARN if reasons else Severity.PASS,
+        title="Weak out-of-sample evidence" if reasons else "Out-of-sample evidence holds up",
+        message=message,
+        evidence=ev,
+        recommendation=None
+        if selection
+        else "Declare PARAM_GRID (or statistics.trials) to enable PBO/DSR/CPCV diagnostics.",
+        confidence=Confidence.MEDIUM,
+    )
+
+
 def walk_forward_single(
     series: pd.Series, cfg: ValidationConfig, periods_per_year: float
 ) -> dict[str, Any]:
@@ -112,8 +217,10 @@ def walk_forward_single(
         expanding=cfg.expanding,
     )
     rows = []
+    parts = []
     for w in wf.windows(series):
         seg = series.iloc[w.test_start : w.test_end]
+        parts.append(seg)
         rows.append(
             {
                 "fold": w.fold,
@@ -121,7 +228,12 @@ def walk_forward_single(
                 "oos_sharpe": sharpe_ratio(seg, periods_per_year=periods_per_year),
             }
         )
-    return {"method": "walk_forward_windows", "folds": rows, "diagram": wf.diagram(series)}
+    return {
+        "method": "walk_forward_windows",
+        "folds": rows,
+        "oos_returns": pd.concat(parts) if parts else series.iloc[:0],
+        "diagram": wf.diagram(series),
+    }
 
 
 def cpcv_selection(
@@ -169,33 +281,15 @@ def analyze_selection(
         try:
             wf = walk_forward_selection(matrix, cfg, ppy)
             section["walk_forward"] = {k: v for k, v in wf.items() if k != "oos_returns"}
-            is_m, oos = wf["is_sharpe_mean"], wf["oos_sharpe"]
-            bad = (
-                not math.isfinite(oos)
-                or oos <= 0
-                or (math.isfinite(is_m) and is_m > 0 and oos < 0.5 * is_m)
+            ev = oos_evidence(
+                wf["folds"],
+                wf["oos_returns"],
+                is_sharpe_mean=wf["is_sharpe_mean"],
+                periods_per_year=ppy,
+                min_observations=stats_cfg.min_observations,
             )
-            findings.append(
-                Finding(
-                    id="QP-VAL-001",
-                    category=Category.VALIDATION,
-                    severity=Severity.WARN if bad else Severity.PASS,
-                    title="Weak out-of-sample evidence"
-                    if bad
-                    else "Out-of-sample performance holds up",
-                    message=(
-                        f"Walk-forward selection: mean in-sample Sharpe {is_m:.2f}, out-of-sample "
-                        f"Sharpe {oos:.2f} over {len(wf['folds'])} folds."
-                    ),
-                    evidence={"is_sharpe_mean": is_m, "oos_sharpe": oos, "folds": wf["folds"]},
-                    why_it_matters=(
-                        "The out-of-sample result of the full selection procedure is the honest "
-                        "estimate of what the research process delivers."
-                    ),
-                    recommendation="Report walk-forward OOS performance as the headline result.",
-                    confidence=Confidence.MEDIUM,
-                )
-            )
+            section["oos_evidence"] = ev
+            findings.append(oos_finding(ev, selection=True))
         except QuantProofInputError as exc:
             section["walk_forward"] = {"error": str(exc)}
 
