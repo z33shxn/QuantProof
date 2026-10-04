@@ -10,7 +10,9 @@ from quantproof.statistics.bootstrap import (
 from quantproof.statistics.deflated_sharpe import (
     DSRResult,
     deflated_sharpe_ratio,
+    effective_number_of_trials,
     expected_max_sharpe,
+    expected_max_standard_normal,
 )
 from quantproof.statistics.pbo import PBOResult, probability_of_backtest_overfitting
 from quantproof.statistics.probabilistic_sharpe import (
@@ -40,7 +42,9 @@ __all__ = [
     "bootstrap_sharpe",
     "bootstrap_statistic",
     "deflated_sharpe_ratio",
+    "effective_number_of_trials",
     "expected_max_sharpe",
+    "expected_max_standard_normal",
     "max_drawdown",
     "minimum_track_record_length",
     "optimal_block_length",
