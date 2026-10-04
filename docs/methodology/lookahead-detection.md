@@ -111,7 +111,7 @@ returned as the signal); the clean fixtures produce no WARN or FAIL. These files
 
 Static analysis can neither prove the presence nor the absence of look-ahead. It is one
 of three independent lines of evidence; the [runtime causality test](runtime-causality.md)
-checks behaviour, and [leakage diagnostics](../api/rules.md#leakage) check values.
+checks behaviour, and [leakage diagnostics](../api/rules.md#leakage--methodology) check values.
 
 ## References
 
