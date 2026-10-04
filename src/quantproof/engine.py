@@ -31,7 +31,12 @@ from quantproof.analyzers.execution.analyzer import analyze_execution, metrics, 
 from quantproof.analyzers.leakage.detector import feature_leakage_findings, signal_foresight_finding
 from quantproof.analyzers.static.analyzer import analyze_file, analyze_source
 from quantproof.analyzers.statistical.analyzer import analyze_statistics
-from quantproof.analyzers.statistical.selection import analyze_selection, walk_forward_single
+from quantproof.analyzers.statistical.selection import (
+    analyze_selection,
+    oos_evidence,
+    oos_finding,
+    walk_forward_single,
+)
 from quantproof.config import AuditConfig
 from quantproof.data.loaders import DataSource, describe_source, load_frame, prepare_prices
 from quantproof.data.panel import is_panel, symbols, unique_times, wide
@@ -601,30 +606,19 @@ def _audit_strategy(
     else:
         try:
             wf = walk_forward_single(net, cfg.validation, ppy)
+            ev = oos_evidence(
+                wf["folds"],
+                wf["oos_returns"],
+                is_sharpe_mean=None,
+                periods_per_year=ppy,
+                min_observations=cfg.statistics.min_observations,
+            )
             sections["validation"] = {
-                "walk_forward": wf,
+                "walk_forward": {k: v for k, v in wf.items() if k != "oos_returns"},
+                "oos_evidence": ev,
                 "note": "No PARAM_GRID: selection diagnostics not applicable.",
             }
-            neg = sum(
-                1 for f in wf["folds"] if math.isfinite(f["oos_sharpe"]) and f["oos_sharpe"] < 0
-            )
-            unstable = neg > len(wf["folds"]) / 2
-            findings.append(
-                Finding(
-                    id="QP-VAL-001",
-                    category=Category.VALIDATION,
-                    severity=Severity.WARN if unstable else Severity.INFO,
-                    title="Unstable performance across windows"
-                    if unstable
-                    else "Performance across windows",
-                    message=(
-                        f"Negative Sharpe in {neg} of {len(wf['folds'])} sequential test windows. "
-                        "Without a parameter grid, QuantProof cannot measure selection bias."
-                    ),
-                    evidence={"folds": wf["folds"]},
-                    recommendation="Declare PARAM_GRID (or statistics.trials) to enable PBO/DSR/CPCV diagnostics.",
-                )
-            )
+            findings.append(oos_finding(ev, selection=False))
         except QuantProofInputError as exc:
             sections["validation"] = {"error": str(exc)}
 
