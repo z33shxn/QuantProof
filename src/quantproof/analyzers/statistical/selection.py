@@ -139,7 +139,8 @@ def oos_evidence(
         reasons.append(f"out-of-sample Sharpe is {oos_sr:.2f} (≤ 0)")
     if len(fold_sr) and n_pos < len(fold_sr) / 2:
         reasons.append(f"only {n_pos} of {len(fold_sr)} folds have a positive OOS Sharpe")
-    if math.isfinite(degradation) and degradation < OOS_DEGRADATION_WARN:
+    # Only meaningful for a positive OOS Sharpe; a non-positive one is already reported.
+    if math.isfinite(degradation) and 0 < degradation < OOS_DEGRADATION_WARN:
         reasons.append(
             f"OOS Sharpe is {degradation:.0%} of the mean in-sample Sharpe "
             f"(< {OOS_DEGRADATION_WARN:.0%})"
