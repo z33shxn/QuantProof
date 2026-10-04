@@ -110,7 +110,7 @@ def test_benchmark_enables_trend_regimes(prices, quick_config):
 
 
 def test_trials_override(prices):
-    cfg = AuditConfig(quick=True)
+    cfg = AuditConfig(profile="quick")
     cfg.statistics.trials = 77
     res = audit(causal_strategy, prices, config=cfg)
     assert res.sections["statistics"]["dsr"]["n_trials"] == 77
