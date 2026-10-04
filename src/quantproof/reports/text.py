@@ -89,10 +89,20 @@ def render_text(result: AuditResult, *, verbose: bool = False, color: bool = Fal
                 continue
             seen_pass.add(f.id)
             loc = f" ({f.location.describe()})" if f.location and f.location.line else ""
-            lines.append(paint(f"{f.severity.symbol} {f.id:<13} {f.title}{loc}", f.severity))
+            usage = f" [{f.usage.label}]" if f.usage is not None and f.is_issue else ""
+            lines.append(paint(f"{f.severity.symbol} {f.id:<13} {f.title}{loc}{usage}", f.severity))
             if f.is_issue or verbose:
-                msg = f.message if len(f.message) < 160 else f.message[:157] + "..."
+                msg = f.message if len(f.message) < 160 or verbose else f.message[:157] + "..."
                 lines.append(f"    {msg}")
+            if verbose and f.is_issue:
+                for label, text in (
+                    ("Why it matters", f.why_it_matters),
+                    ("Potential impact", f.impact),
+                    ("How to investigate", f.investigate),
+                    ("Recommendation", f.recommendation),
+                ):
+                    if text:
+                        lines.append(f"    {label}: {text}")
 
     stats = result.sections.get("statistics", {})
     val = result.sections.get("validation", {})
@@ -108,7 +118,8 @@ def render_text(result: AuditResult, *, verbose: bool = False, color: bool = Fal
             )
             dsr = stats.get("dsr", {})
             lines.append(
-                f"  Deflated Sharpe Ratio:        {format_number(dsr.get('dsr'), 3)}  (trials: {dsr.get('n_trials')})"
+                f"  Deflated Sharpe Ratio:        {format_number(dsr.get('dsr'), 3)}  "
+                f"(trials: {dsr.get('n_trials')}, {dsr.get('trials_source', 'n/a')})"
             )
         if isinstance(val.get("pbo"), dict) and "pbo" in val["pbo"]:
             lines.append(f"  Prob. of Backtest Overfitting: {format_number(val['pbo']['pbo'], 2)}")
@@ -116,6 +127,15 @@ def render_text(result: AuditResult, *, verbose: bool = False, color: bool = Fal
         if isinstance(wf, dict) and "oos_sharpe" in wf:
             lines.append(f"  Walk-forward OOS Sharpe:      {format_number(wf['oos_sharpe'], 2)}")
 
+    n = result.narrative
+    lines.append("")
+    lines.append("WHY THIS VERDICT")
+    lines.append(f"  Primary reason: {n.primary_reason}")
+    for e in n.supporting_evidence:
+        lines.append(f"  - {e}")
+    if n.next_steps:
+        lines.append("  Next steps:")
+        lines += [f"    {i}. {step}" for i, step in enumerate(n.next_steps, 1)]
     lines.append("")
     s = result.summary
     lines.append(

@@ -28,6 +28,7 @@ def result_to_dict(result: AuditResult) -> dict[str, Any]:
             "info": result.summary.info,
             "verdict_rules": result.summary.verdict_rules,
             "verdict_reasons": result.summary.verdict_reasons,
+            "narrative": result.narrative.model_dump(mode="json"),
         },
         "overview": s.get("overview", {}),
         "findings": [f.model_dump(mode="json") for f in result.findings],
@@ -57,7 +58,7 @@ def render_json(result: AuditResult, indent: int = 2) -> str:
 
 def load_result(path: str | Path) -> AuditResult:
     """Rebuild an :class:`AuditResult` from a JSON report written by QuantProof."""
-    from quantproof.results import AuditResult, AuditSummary, Finding
+    from quantproof.results import AuditResult, AuditSummary, Finding, Narrative
     from quantproof.severity import Severity
 
     data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -88,6 +89,9 @@ def load_result(path: str | Path) -> AuditResult:
             info=summary.get("info", 0),
             verdict_rules=summary.get("verdict_rules", []),
             verdict_reasons=summary.get("verdict_reasons", []),
+            narrative=Narrative.model_validate(summary["narrative"])
+            if summary.get("narrative")
+            else None,
         ),
         findings=[Finding.model_validate(f) for f in data["findings"]],
         sections=sections,

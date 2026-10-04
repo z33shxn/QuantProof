@@ -51,7 +51,9 @@ class PandasAdapter:
 
     Example
     -------
-    >>> artifacts = PandasAdapter().load({"returns": returns_series, "benchmark": spy_returns})
+    >>> artifacts = PandasAdapter().load(  # doctest: +SKIP
+    ...     {"returns": returns_series, "benchmark": spy_returns}
+    ... )
     """
 
     name = "pandas"

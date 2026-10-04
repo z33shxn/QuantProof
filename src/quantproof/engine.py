@@ -15,6 +15,7 @@ Two input modes are supported:
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import math
 import textwrap
@@ -260,6 +261,12 @@ def _manifest(
         strategy_info["path"] = str(spec.source_path)
         strategy_info["sha256"] = hash_file(spec.source_path)
         git_path = spec.source_path
+    elif spec is not None:
+        try:
+            src = inspect.getsource(spec.func)
+            strategy_info["source_sha256"] = hashlib.sha256(src.encode("utf-8")).hexdigest()
+        except (TypeError, OSError):
+            strategy_info["source_sha256"] = None
     data_info: dict[str, Any] = {
         "source": describe_source(data_source) if data_source is not None else None
     }
