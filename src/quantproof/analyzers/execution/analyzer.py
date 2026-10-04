@@ -401,10 +401,17 @@ def analyze_execution(
                 id="QP-EXEC-001",
                 category=Category.EXECUTION,
                 severity=Severity.PASS,
-                title="Edge does not depend on optimistic execution assumptions",
+                title="Reported performance does not rely on optimistic execution",
                 message=(
                     f"Headline ({headline_key}) Sharpe {sr_headline:.2f}; realistic net Sharpe "
                     f"{sr_real:.2f}; gross Sharpe at lag 0 / lag 1: {sr_naive:.2f} / {sr_lag1:.2f}."
+                    + (
+                        " The declared assumptions are not optimistic, so the gap between the "
+                        "naive and realistic results is not attributed to execution; see the "
+                        "causality and statistics sections."
+                        if not optimistic and collapses
+                        else ""
+                    )
                 ),
                 evidence=ev,
             )

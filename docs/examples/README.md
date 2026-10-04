@@ -23,6 +23,7 @@ Numbers are from the default configuration (seed 42) and are asserted, in substa
 | leakage_strategy | FAIL | 4 / 6 / 27 | 18.08 | −1.99 |
 | overfit_strategy | WARN | 0 / 9 / 34 | 0.91 | 0.43 |
 | unrealistic_execution | FAIL | 1 / 9 / 30 | 1.64 | 0.10 |
+| cross_sectional_momentum (universe.parquet) | WARN | 0 / 6 / 38 | 0.63 | 0.82 |
 
 "Naive" = fill at the close that produced the signal, no costs. "Audit" = one bar of lag,
 1 bp commission, 2 bp spread (1 bp paid), 2 bp slippage.
@@ -34,7 +35,8 @@ trailing windows only, with declared lagged execution and costs and a 16-point
 `PARAM_GRID`.
 
 - Static analysis: no WARN or FAIL (QP013 records the 16-trial grid as INFO).
-- Causality: no decision changed in 31 perturbation trials.
+- Causality: no decision changed in 39 evaluated perturbation trials (one permutation
+  trial skipped because only one future timestamp remained).
 - Execution: PASS — the declared assumptions are at least as conservative as the audit's.
 - The verdict is still **WARN**, honestly: on this synthetic data the strategy loses money
   (net Sharpe −0.42; PSR 0.17; DSR 0.04 with 16 trials; walk-forward OOS Sharpe −0.89;
@@ -47,9 +49,10 @@ today's position and filters with `rolling(window, center=True)`.
 
 - **QP001 FAIL** (the negative shift reaches the returned signal) and **QP002 FAIL**.
 - **QP-CAUSAL-001 FAIL**: perturbing data after *t* changed decisions at or before *t* in
-  10 of 31 trials.
+  16 of 39 trials; each failing trial records the decision time, the first perturbed
+  observation and the before/after decision.
 - **QP-LEAK-003 WARN**: the signal's direction matches the next return 100 % of the time over
-  652 bars (p ≈ 5e-197).
+  652 bars (two-sided p ≈ 1e-196).
 - **QP-STAT-004 WARN**: the naive backtest's Sharpe of 9.08 is implausible.
 
 ## 3. Leakage in an ML workflow
@@ -75,7 +78,8 @@ causal, so nothing FAILs; the statistical evidence collapses:
 |---|---|
 | Naive / audit Sharpe | 0.91 / 0.43 |
 | PSR (vs 0) | 0.85 |
-| DSR (240 trials, trial variance) | 0.17 — expected max Sharpe of 240 skill-less trials ≈ 0.82 |
+| DSR (240 trials, trial variance, exact expected maximum) | 0.18 — expected max Sharpe of 240 skill-less trials ≈ 0.81 |
+| Effective number of independent trials (Li & Ji) | ≈ 38 (reported, not used for DSR) |
 | Walk-forward selection | mean IS Sharpe 0.62 → OOS −0.60 |
 | PBO (S = 10, 252 combinations) | 0.60 |
 | CPCV path Sharpes (5 paths) | −0.20, −0.38, −0.34, 0.05, −0.47 |
@@ -92,5 +96,24 @@ Findings: QP013, QP-STAT-002/003, QP-VAL-001…004, QP-SENS-001, QP-REGIME-001 (
 - Static: **QP009 WARN** (declared same-bar fills), **QP011 WARN** (zero costs).
 - **QP-EXEC-001 FAIL**: headline Sharpe 1.64 → 0.10 under audit assumptions (6 % of the
   edge survives); gross Sharpe at lag 1 is 0.53.
-- **QP-EXEC-003 WARN**: break-even cost 4.9 bps one-way vs 4 bps assumed;
+- **QP-EXEC-003 WARN**: the mean return is erased at ≈ 1.22× the audit cost model
+  (linear break-even 4.9 bps one-way vs 4 bps assumed);
   **QP-EXEC-004 WARN**: turnover ≈ 273× equity per year.
+
+## 6. Cross-sectional momentum on a 10-symbol universe
+
+`examples/cross_sectional_momentum/strategy.py` on `universe.parquet` (long format,
+synthetic, with a weak persistent cross-sectional drift by construction): rank symbols on
+the trailing return excluding the last `skip` days, long the top `n_side`, short the
+bottom `n_side`, rebalance every `rebalance` bars. All 36 variants are declared.
+
+- No static, causality, leakage or execution issues; the portfolio is simulated per
+  symbol with costs summed.
+- **WARN**, primary reason QP-VAL-001: walk-forward selection gives a negative
+  out-of-sample Sharpe with 1 of 5 folds positive; PBO ≈ 0.80; DSR ≈ 0.50 with 36 trials;
+  Hansen SPA does not reject; PSR 0.947 (just below 0.95).
+
+The audited full-sample Sharpe of the default parameters (0.82) is not distinguishable
+from the best of 36 skill-less variants. See also the
+[bad](bad-research-workflow.md) and [good](good-research-workflow.md) research-workflow
+tutorials and `python examples/proof_of_value/run.py`.

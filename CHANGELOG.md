@@ -6,11 +6,69 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.1.0] — 2026-10-04
+## [0.1.0] — release candidate (not yet tagged or published)
 
-First public release.
+The initial version, followed by a second, deeper hardening review before release.
 
-### Added
+### Hardening review — added
+
+- Multi-asset panels: long-format data with a symbol column, per-symbol data validation
+  (QP-DATA-015 for unsynchronised symbols), panel-aware causality perturbation, portfolio
+  simulation, a cross-sectional momentum example and `generate_universe()`.
+- Rule registry (`quantproof.rules`) as the single source of truth; generated
+  `docs/api/rules.md`; `quantproof rules [--category] [--json] [--markdown]` and
+  `quantproof rules show ID`.
+- Usage-aware findings (*FORBIDDEN IN LIVE DECISION* vs *LEGITIMATE FOR LABEL /
+  ANALYSIS*); every WARN/FAIL finding explains why it matters, potential impact and how
+  to investigate.
+- Evidence-first narrative (primary reason, supporting evidence, recommendations, next
+  steps) in every report; `AuditResult.narrative`, `.statistics`, `.validation`,
+  `.execution`, `.causality`, `.metrics`, `.reproducibility`, `.to_markdown()`,
+  `.to_html()`.
+- Audit profiles `quick` / `standard` / `strict` (replaces `quick=True`).
+- CLI exit codes 0 pass / 1 warn / 2 fail / 3 invalid input / 4 internal error; no raw
+  tracebacks without `--debug`.
+- Causality schemes `replacement` and `extreme` (renamed from `shock`); perturbation by
+  timestamp cut-off with evidence (decision time, first modified observation, original
+  vs perturbed value).
+- Event-time purging API (`event_end`, `event_start`; `t1` kept as an alias) and duration
+  embargoes.
+- Composable cost model (`compose`, `without`, `scaled`, `TransactionTax`), cost
+  attribution, cost-multiplier sensitivity, QP-EXEC-006 for untestable execution styles.
+- DSR: exact expected maximum, trial provenance, Li & Ji effective-trials estimate.
+- Evidence-based out-of-sample criteria (QP-VAL-001) without a composite score.
+- Manifest fingerprints for code, data, config, parameters and environment.
+- `GenericResultsAdapter`; adapter guidance for VectorBT, Backtrader and LEAN.
+- Proof-of-value script, bad/good research-workflow tutorials, limitations, references,
+  multi-asset and analysis-level documentation, runnable key-object docs (tested),
+  benchmarks and work-count complexity tests, ROADMAP, banner.
+
+### Hardening review — changed
+
+- `quantproof.audit` is now unambiguously the function; analyzers moved to
+  `quantproof.analyzers`, the result model to `quantproof.results`.
+- `ExecutionConfig.cost_grid_bps` replaced by `cost_multipliers`.
+- QP-LEAK-003 is two-sided; QP-EXEC-003 uses the break-even cost multiplier.
+
+### Hardening review — fixed (each with a regression test)
+
+- Empty or single-row data passed every data check.
+- Multi-symbol long data was silently treated as one series; MultiIndex input crashed.
+- Constant prices crashed volatility regimes.
+- pandas 3 string columns were not coerced to numbers.
+- Purging compared timezone-aware and naive label times as raw integers, accepted
+  unsorted observations, silently re-labelled a `t1` with a different index, and could
+  yield empty training sets.
+- Hansen SPA returned a "significant" p-value for constant differentials; Li & Ji
+  counted near-integer eigenvalues as two trials; the Sharpe ratio lost scale invariance
+  for very small magnitudes.
+- Missing report-section keys crashed HTML rendering; negative "break-even" costs were
+  reported for strategies without a positive gross return.
+- Static analysis missed helper-function shifts, callable aliases and module-constant
+  shift periods, and reported plot-only centered windows as FAIL.
+
+
+### Initial implementation — added
 
 - Audit engine with an explicit verdict (FAIL / WARN / PASS from findings; no score),
   strategy mode and results mode.
@@ -33,7 +91,7 @@ First public release.
 - Five deliberately constructed examples with synthetic data, a walkthrough notebook, and
   methodology documentation.
 
-### Fixed during development (each covered by a regression test)
+### Initial implementation — fixed during development (each covered by a regression test)
 
 - Datetime arithmetic assumed nanosecond resolution; pandas may infer microseconds, which
   mis-scaled gap and latency measurements and misclassified daily data as intraday.

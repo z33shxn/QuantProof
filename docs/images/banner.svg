@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="t d">
+  <title id="t">QuantProof</title>
+  <desc id="d">QuantProof: trust your backtest before you trust your strategy. Illustrative (stylized) equity curves: a naive backtest rising steeply and the audited result falling, with PASS, WARN and FAIL labels.</desc>
+  <rect width="1280" height="640" fill="#0d0d0d"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+    <text x="88" y="190" fill="#ffffff" font-size="88" font-weight="700" letter-spacing="-2">QuantProof</text>
+    <text x="90" y="250" fill="#c3c2b7" font-size="30">Trust your backtest before</text>
+    <text x="90" y="290" fill="#c3c2b7" font-size="30">you trust your strategy.</text>
+    <text x="90" y="350" fill="#a3a29b" font-size="22">Look-ahead · leakage · execution realism</text>
+    <text x="90" y="380" fill="#a3a29b" font-size="22">selection bias · reproducibility</text>
+    <g font-size="22" font-weight="600">
+      <rect x="90" y="420" width="132" height="44" rx="6" fill="none" stroke="#0ca30c" stroke-width="2"/>
+      <text x="112" y="450" fill="#0ca30c">✓ PASS</text>
+      <rect x="240" y="420" width="140" height="44" rx="6" fill="none" stroke="#fab219" stroke-width="2"/>
+      <text x="262" y="450" fill="#fab219">⚠ WARN</text>
+      <rect x="398" y="420" width="124" height="44" rx="6" fill="none" stroke="#e34948" stroke-width="2"/>
+      <text x="420" y="450" fill="#e34948">✗ FAIL</text>
+    </g>
+    <text x="90" y="550" fill="#6f6e69" font-size="18">Evidence, not scores · open source · MIT</text>
+  </g>
+  <g transform="translate(940,170) scale(0.7,0.85)">
+    <line x1="0" y1="340" x2="440" y2="340" stroke="#383835" stroke-width="1.5"/>
+    <line x1="0" y1="0" x2="0" y2="340" stroke="#383835" stroke-width="1.5"/>
+    <polyline fill="none" stroke="#d95926" stroke-width="4" stroke-linejoin="round"
+      points="0,330 40,318 80,300 120,281 160,258 200,232 240,205 280,170 320,131 360,92 400,52 440,14"/>
+    <polyline fill="none" stroke="#3987e5" stroke-width="4" stroke-linejoin="round"
+      points="0,330 40,334 80,326 120,338 160,331 200,344 240,336 280,350 320,341 360,353 400,348 440,358"/>
+  </g>
+  <g font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="18">
+    <text x="940" y="150" fill="#d95926">naive backtest: Sharpe 9.08</text>
+    <text x="940" y="500" fill="#3987e5">audited: Sharpe −2.19</text>
+  </g>
+</svg>
