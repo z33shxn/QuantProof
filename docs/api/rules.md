@@ -202,7 +202,7 @@ Every rule id QuantProof can emit, with its maximum severity and the exact sever
 - **Limitations:** Intra-module data flow only; values passed through containers, other modules or dynamic attributes are not traced.
 
 ```python
-df['future'] = df['close'].shift(-1)
+df["future"] = df["close"].shift(-1)
 ```
 
 ### `QP002` Centered rolling window
@@ -215,7 +215,7 @@ df['future'] = df['close'].shift(-1)
 - **Limitations:** Centered windows for descriptive plots are legitimate; they are reported as WARN.
 
 ```python
-df['close'].rolling(20, center=True).mean()
+df["close"].rolling(20, center=True).mean()
 ```
 
 ### `QP003` Future-oriented construction
@@ -267,7 +267,8 @@ KFold(5, shuffle=True)
 - **Limitations:** Detects scikit-learn style transformers bound to names or constructed inline.
 
 ```python
-X_s = StandardScaler().fit_transform(X); train_test_split(X_s, y)
+X_s = StandardScaler().fit_transform(X)
+train_test_split(X_s, y)
 ```
 
 ### `QP007` Full-sample normalization
@@ -293,7 +294,8 @@ X_s = StandardScaler().fit_transform(X); train_test_split(X_s, y)
 - **Limitations:** Copies are traced through simple column assignments only.
 
 ```python
-X = df[['ret', 'target']]; model.fit(X, df['target'])
+X = df[["ret", "target"]]
+model.fit(X, df["target"])
 ```
 
 ### `QP009` Same-bar execution assumption
@@ -306,7 +308,7 @@ X = df[['ret', 'target']]; model.fit(X, df['target'])
 - **Limitations:** Market-on-close orders on signals computed shortly before the close can be valid.
 
 ```python
-EXECUTION = {'signal_lag': 0}
+EXECUTION = {"signal_lag": 0}
 ```
 
 ### `QP010` Missing execution lag
@@ -319,7 +321,7 @@ EXECUTION = {'signal_lag': 0}
 - **Limitations:** Provenance is traced through simple assignments in the same file.
 
 ```python
-df['strategy'] = df['signal'] * df['returns']
+df["strategy"] = df["signal"] * df["returns"]
 ```
 
 ### `QP011` Missing transaction costs
@@ -345,7 +347,8 @@ pnl = position.shift(1) * returns
 - **Limitations:** Intra-module data flow only.
 
 ```python
-X = df[['ret_1', 'fwd_ret']]; model.fit(X, y)
+X = df[["ret_1", "fwd_ret"]]
+model.fit(X, y)
 ```
 
 ### `QP013` Large parameter search
@@ -358,7 +361,7 @@ X = df[['ret_1', 'fwd_ret']]; model.fit(X, y)
 - **Limitations:** Counts only searches visible in this file with literal sizes.
 
 ```python
-GridSearchCV(model, {'a': range(50), 'b': range(50)})
+GridSearchCV(model, {"a": range(50), "b": range(50)})
 ```
 
 ### `QP014` No explicit out-of-sample evaluation
@@ -371,7 +374,8 @@ GridSearchCV(model, {'a': range(50), 'b': range(50)})
 - **Limitations:** Evaluation in another module is invisible; a declared PARAM_GRID is evaluated by QuantProof itself.
 
 ```python
-model.fit(X, y); model.score(X, y)
+model.fit(X, y)
+model.score(X, y)
 ```
 
 ### `QP015` Non-causal transformation
@@ -384,7 +388,7 @@ model.fit(X, y); model.score(X, y)
 - **Limitations:** Library-specific names; custom two-sided filters are not recognized.
 
 ```python
-df['close'].bfill()
+df["close"].bfill()
 ```
 
 ## Runtime causality — [methodology](../methodology/runtime-causality.md)

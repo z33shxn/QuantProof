@@ -37,7 +37,7 @@ jobs:
           def generate_signals(data):
               c = data['close']
               return (c.rolling(10).mean() > c.rolling(50).mean()).astype(float).where(c.rolling(50).mean().notna())
-          result = audit(strategy=generate_signals, data=prices, config=AuditConfig(profile="quick"))
+          result = audit(strategy=generate_signals, data=prices, config=AuditConfig(profile='quick'))
           assert result.status.value in {'PASS', 'WARN'}, result.summary
           print('wheel smoke test:', result.status.value)
           "

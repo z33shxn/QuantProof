@@ -9,8 +9,13 @@ relative to the [bad workflow](bad-research-workflow.md):
    slippage:
 
    ```python
-   EXECUTION = {"signal_lag": 1, "fill": "close",
-                "commission_bps": 1.0, "spread_bps": 4.0, "slippage_bps": 2.0}
+   EXECUTION = {
+       "signal_lag": 1,
+       "fill": "close",
+       "commission_bps": 1.0,
+       "spread_bps": 4.0,
+       "slippage_bps": 2.0,
+   }
    ```
 
 3. **The whole search is declared.** All 36 variants are in `PARAM_GRID`, so QuantProof

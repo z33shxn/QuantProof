@@ -303,7 +303,7 @@ _STATIC: list[dict[str, Any]] = [
         "remediation": "Use negative shifts only for labels that never feed features or signals.",
         "limitations": "Intra-module data flow only; values passed through containers, other modules or "
         "dynamic attributes are not traced.",
-        "example": "df['future'] = df['close'].shift(-1)",
+        "example": 'df["future"] = df["close"].shift(-1)',
         "pass_title": "No negative temporal shift detected",
     },
     {
@@ -316,7 +316,7 @@ _STATIC: list[dict[str, Any]] = [
         "investigate": "Check whether the smoothed series feeds signals.",
         "remediation": "Use trailing windows for anything that feeds decisions.",
         "limitations": "Centered windows for descriptive plots are legitimate; they are reported as WARN.",
-        "example": "df['close'].rolling(20, center=True).mean()",
+        "example": 'df["close"].rolling(20, center=True).mean()',
         "pass_title": "No centered rolling window detected",
     },
     {
@@ -371,7 +371,7 @@ _STATIC: list[dict[str, Any]] = [
         "investigate": "Check what data the transformer is fitted on.",
         "remediation": "Split first; fit on the training fold (e.g. sklearn Pipeline in temporal CV).",
         "limitations": "Detects scikit-learn style transformers bound to names or constructed inline.",
-        "example": "X_s = StandardScaler().fit_transform(X); train_test_split(X_s, y)",
+        "example": "X_s = StandardScaler().fit_transform(X)\ntrain_test_split(X_s, y)",
         "pass_title": "No fit-before-split leakage detected",
     },
     {
@@ -399,7 +399,7 @@ _STATIC: list[dict[str, Any]] = [
         "investigate": "Compare the feature list with the target definition.",
         "remediation": "Exclude the target and anything derived from it.",
         "limitations": "Copies are traced through simple column assignments only.",
-        "example": "X = df[['ret', 'target']]; model.fit(X, df['target'])",
+        "example": 'X = df[["ret", "target"]]\nmodel.fit(X, df["target"])',
         "pass_title": "No direct target leakage detected",
     },
     {
@@ -414,7 +414,7 @@ _STATIC: list[dict[str, Any]] = [
         "investigate": "Check the execution timing assumed by the backtest.",
         "remediation": "Declare EXECUTION and test with a one-bar lag or next-open fills.",
         "limitations": "Market-on-close orders on signals computed shortly before the close can be valid.",
-        "example": "EXECUTION = {'signal_lag': 0}",
+        "example": 'EXECUTION = {"signal_lag": 0}',
         "pass_title": "No undocumented same-bar execution detected",
     },
     {
@@ -429,7 +429,7 @@ _STATIC: list[dict[str, Any]] = [
         "investigate": "Check the alignment of positions and returns.",
         "remediation": "Lag positions: returns * signal.shift(1).",
         "limitations": "Provenance is traced through simple assignments in the same file.",
-        "example": "df['strategy'] = df['signal'] * df['returns']",
+        "example": 'df["strategy"] = df["signal"] * df["returns"]',
         "pass_title": "Signals are lagged before being multiplied by returns",
     },
     {
@@ -457,7 +457,7 @@ _STATIC: list[dict[str, Any]] = [
         "investigate": "Follow the origin lines listed in the evidence.",
         "remediation": "Build features only from information at or before each timestamp.",
         "limitations": "Intra-module data flow only.",
-        "example": "X = df[['ret_1', 'fwd_ret']]; model.fit(X, y)",
+        "example": 'X = df[["ret_1", "fwd_ret"]]\nmodel.fit(X, y)',
         "pass_title": "No future-derived model features detected",
     },
     {
@@ -471,7 +471,7 @@ _STATIC: list[dict[str, Any]] = [
         "investigate": "Count every configuration that was tried.",
         "remediation": "Report the trial count (statistics.trials) so the DSR accounts for it.",
         "limitations": "Counts only searches visible in this file with literal sizes.",
-        "example": "GridSearchCV(model, {'a': range(50), 'b': range(50)})",
+        "example": 'GridSearchCV(model, {"a": range(50), "b": range(50)})',
         "pass_title": "No large hyper-parameter search detected",
     },
     {
@@ -486,7 +486,7 @@ _STATIC: list[dict[str, Any]] = [
         "remediation": "Hold out a test period or use walk-forward/purged CV.",
         "limitations": "Evaluation in another module is invisible; a declared PARAM_GRID is evaluated by "
         "QuantProof itself.",
-        "example": "model.fit(X, y); model.score(X, y)",
+        "example": "model.fit(X, y)\nmodel.score(X, y)",
         "pass_title": "Out-of-sample evaluation present or not applicable",
     },
     {
@@ -500,7 +500,7 @@ _STATIC: list[dict[str, Any]] = [
         "investigate": "Check whether the transformed series feeds decisions.",
         "remediation": "Use one-sided filters (lfilter, ewm) and forward-fill only.",
         "limitations": "Library-specific names; custom two-sided filters are not recognized.",
-        "example": "df['close'].bfill()",
+        "example": 'df["close"].bfill()',
         "pass_title": "No non-causal transformation detected",
     },
 ]
