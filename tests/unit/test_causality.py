@@ -13,6 +13,7 @@ from quantproof.analyzers.causal import (
     run_causality_test,
 )
 from quantproof.config import CausalityConfig
+from quantproof.data.synthetic import generate_prices
 from quantproof.errors import QuantProofInputError
 from quantproof.severity import Severity
 
@@ -120,3 +121,44 @@ def test_dataframe_and_array_outputs(prices):
     assert rep.n_fail == 0
     rep2 = run_causality_test(lambda d: d["close"].rolling(5).mean().to_numpy(), prices)
     assert rep2.n_fail == 0
+
+
+_c = lambda d: d["close"]  # noqa: E731
+CLEAN_TRANSFORMS = {
+    "rolling_std": lambda d: _c(d).rolling(20).std(),
+    "rolling_corr": lambda d: _c(d).pct_change().rolling(30).corr(d["volume"].pct_change()),
+    "ewm_var": lambda d: _c(d).ewm(halflife=10).var(),
+    "expanding_rank": lambda d: _c(d).expanding().rank(pct=True),
+    "expanding_z": lambda d: (_c(d) - _c(d).expanding().mean()) / _c(d).expanding().std(),
+    "cummax_drawdown": lambda d: _c(d) / _c(d).cummax() - 1,
+    "rolling_quantile": lambda d: _c(d).rolling(50).quantile(0.9),
+    "rolling_apply": lambda d: _c(d).rolling(10).apply(lambda w: w[-1] - w[0], raw=True),
+    "loop_state": lambda d: pd.Series(
+        np.cumsum(np.nan_to_num(np.sign(np.diff(_c(d).to_numpy(), prepend=np.nan)))),
+        index=d.index,
+    ),
+    "weekly_resample_shifted": lambda d: (
+        _c(d).resample("W-FRI").last().shift(1).reindex(d.index, method="ffill")
+    ),
+    "expanding_fit": lambda d: pd.Series(
+        [
+            np.polyfit(np.arange(i + 1), _c(d).iloc[: i + 1].to_numpy(), 1)[0] if i > 5 else np.nan
+            for i in range(len(d))
+        ],
+        index=d.index,
+    ),
+    "multi_column": lambda d: pd.DataFrame(
+        {"a": _c(d).rolling(5).mean(), "b": d["volume"].rolling(5).sum()}
+    ),
+    "groupby_month_cumsum": lambda d: _c(d).pct_change().groupby(d.index.to_period("M")).cumsum(),
+}
+
+
+@pytest.mark.parametrize("name", sorted(CLEAN_TRANSFORMS))
+def test_runtime_false_positive_suite(name):
+    """Causal transformations must never be flagged by the perturbation test."""
+    px = generate_prices(260, seed=5)
+    cfg = CausalityConfig(n_timestamps=5)
+    rep = run_causality_test(CLEAN_TRANSFORMS[name], px, cfg)
+    assert rep.deterministic and rep.n_error == 0
+    assert rep.n_fail == 0, [t for t in rep.trials if t.status == "fail"][:1]

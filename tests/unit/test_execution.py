@@ -312,9 +312,12 @@ def test_execution_section_attribution_and_multipliers(prices):
     )
     one = section["cost_sensitivity"][2]
     assert one["sharpe"] == pytest.approx(section["scenarios"]["realistic"]["metrics"]["sharpe"])
-    assert section["break_even_cost_multiplier"] == pytest.approx(
-        sim.gross_returns.mean() / sim.costs.mean()
-    )
+    mean_gross = sim.gross_returns.mean()
+    if mean_gross > 0:
+        assert section["break_even_cost_multiplier"] == pytest.approx(mean_gross / sim.costs.mean())
+    else:  # undefined: no cost level makes a non-positive gross return break even
+        assert np.isnan(section["break_even_cost_multiplier"])
+        assert np.isnan(section["break_even_one_way_cost_bps"])
     assert section["semantics"]["audit"].startswith("close-to-close")
 
 
@@ -350,3 +353,17 @@ def test_cost_multipliers_must_be_non_negative():
 
     with pytest.raises(ValidationError):
         ExecutionConfig(cost_multipliers=[1.0, -0.5])
+
+
+def test_break_even_for_profitable_signal(prices):
+    from quantproof.analyzers.execution.analyzer import analyze_execution
+    from quantproof.config import ExecutionConfig
+
+    # Perfect foresight at lag 1 (decision at t uses r_{t+2}) has a large positive gross mean.
+    r = prices["close"].pct_change()
+    signals = np.sign(r.shift(-2)).fillna(0.0)
+    section, _, sim = analyze_execution(prices, signals, ExecutionConfig(), declared=None)
+    assert sim.gross_returns.mean() > 0
+    assert section["break_even_cost_multiplier"] == pytest.approx(
+        sim.gross_returns.mean() / sim.costs.mean()
+    )

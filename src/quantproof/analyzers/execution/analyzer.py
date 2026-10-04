@@ -261,8 +261,13 @@ def analyze_execution(
     mean_turnover = float(turnover.mean()) if len(turnover) else 0.0
     mean_gross = float(gross.mean()) if len(gross) else float("nan")
     mean_cost = float(costs.mean()) if len(costs) else 0.0
-    break_even = mean_gross / mean_turnover * 1e4 if mean_turnover > 0 else float("inf")
-    break_even_mult = mean_gross / mean_cost if mean_cost > 0 else float("inf")
+    # Break-even is only defined for a positive mean gross return (otherwise no cost level
+    # makes the strategy profitable); report NaN rather than a negative "break-even".
+    if not (math.isfinite(mean_gross) and mean_gross > 0):
+        break_even = break_even_mult = float("nan")
+    else:
+        break_even = mean_gross / mean_turnover * 1e4 if mean_turnover > 0 else float("inf")
+        break_even_mult = mean_gross / mean_cost if mean_cost > 0 else float("inf")
     attribution = cost_attribution(gross, window(realistic.cost_breakdown), periods_per_year)
 
     sr_naive = lag_rows[0]["sharpe"]
@@ -502,6 +507,9 @@ def analyze_execution(
                     f"Break-even at {break_even_mult:.2f}× the audit cost model (linear "
                     f"≈ {break_even:.1f} bps one-way vs {cfg.one_way_cost_bps:.1f} bps assumed; "
                     f"net Sharpe {net_sr:.2f})."
+                    if math.isfinite(break_even_mult)
+                    else f"The mean gross return is not positive, so no cost level breaks even "
+                    f"(gross Sharpe {gross_sr:.2f}, net Sharpe {net_sr:.2f})."
                 ),
                 evidence={
                     "break_even_bps": break_even,
