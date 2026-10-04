@@ -379,11 +379,18 @@ def rules_list(
         str | None, typer.Option("--category", help="Only rules in this category.")
     ] = None,
     as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
+    markdown: Annotated[
+        bool, typer.Option("--markdown", help="Full catalogue as Markdown (docs/api/rules.md).")
+    ] = False,
 ) -> None:
     """List every rule (data, static, runtime, execution, statistics …)."""
     if ctx.invoked_subcommand is not None:
         return
-    from quantproof.rules import list_rules
+    from quantproof.rules import list_rules, rules_markdown
+
+    if markdown:
+        typer.echo(rules_markdown(), nl=False)
+        return
 
     specs = list_rules(category)
     if category and not specs:
