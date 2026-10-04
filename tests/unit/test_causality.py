@@ -64,7 +64,7 @@ def test_perturbation_never_touches_the_past(prices):
 
 
 def test_perturbation_preserves_ohlc_validity(prices):
-    for scheme in ("additive", "multiplicative", "shock", "permutation"):
+    for scheme in ("additive", "multiplicative", "extreme", "permutation"):
         out = perturb_future(prices, 200, scheme, seed=2)
         assert (out["high"] >= out[["open", "close"]].max(axis=1) - 1e-9).all()
         assert (out["low"] <= out[["open", "close"]].min(axis=1) + 1e-9).all()
@@ -104,7 +104,7 @@ def test_errors_on_perturbed_data_are_reported(prices):
             raise ValueError("price too high")
         return causal(d)
 
-    rep = run_causality_test(fragile, prices, CausalityConfig(schemes=["shock"]))
+    rep = run_causality_test(fragile, prices, CausalityConfig(schemes=["extreme"]))
     assert rep.n_error > 0
     assert "QP-CAUSAL-003" in {f.id for f in causality_findings(rep)}
 
