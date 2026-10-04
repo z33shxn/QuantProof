@@ -16,9 +16,8 @@ starting with `_`, analyzer internals such as `ModuleContext`) may change withou
 | `QuantProofError` and subclasses `QuantProofDataError`, `QuantProofConfigError`, `QuantProofStrategyError`, `QuantProofInputError` | Errors with actionable messages |
 | `__version__` | Package version |
 
-Note: `quantproof.audit` the *function* shadows the attribute of the same name; the
-`quantproof.audit` *sub-package* is still importable with `from quantproof.audit import
-Finding` or `importlib.import_module("quantproof.audit")`.
+`quantproof.audit` is only the function; analyzers live in `quantproof.analyzers`, the
+result model in `quantproof.results` and severities in `quantproof.severity`.
 
 ## `quantproof.statistics`
 
@@ -52,17 +51,17 @@ Cost components (`BpsCommission`, `PercentageCommission`, `PerShareCommission`,
 `load_frame`, `prepare_prices`, `load_prices`, `load_returns`, `validate_data`,
 `DATA_RULES`, `generate_prices`.
 
-## `quantproof.audit.static`
+## `quantproof.analyzers.static`
 
 `analyze_source`, `analyze_file`, `analyze_path`, `RULES`, `StaticRule`, `register`,
 `list_rules`.
 
-## `quantproof.audit.causal`
+## `quantproof.analyzers.causal`
 
 `run_causality_test`, `causality_findings`, `perturb_future`, `CausalityReport`,
 `PerturbationTrial`, `SCHEMES`.
 
-## `quantproof.audit.leakage`
+## `quantproof.analyzers.leakage`
 
 `feature_leakage_findings`, `signal_foresight_finding`.
 

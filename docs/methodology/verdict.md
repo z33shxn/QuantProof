@@ -1,7 +1,7 @@
 # Verdict rules
 
 The overall verdict is derived from findings by three ordered rules
-(`quantproof.audit.models.determine_verdict`):
+(`quantproof.results.determine_verdict`):
 
 1. **FAIL** if at least one finding has severity FAIL — a critical research-validity
    violation was established.

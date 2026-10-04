@@ -10,7 +10,7 @@ from collections.abc import Callable
 
 import numpy as np
 
-from quantproof.audit.causal import run_causality_test
+from quantproof.analyzers.causal import run_causality_test
 from quantproof.data import generate_prices
 from quantproof.statistics import (
     bootstrap_sharpe,

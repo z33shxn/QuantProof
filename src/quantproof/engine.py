@@ -26,14 +26,12 @@ import numpy as np
 import pandas as pd
 
 from quantproof.adapters.base import ResearchArtifacts
-from quantproof.audit.causal.runner import causality_findings, run_causality_test
-from quantproof.audit.execution.analyzer import analyze_execution, metrics, realistic_simulation
-from quantproof.audit.leakage.detector import feature_leakage_findings, signal_foresight_finding
-from quantproof.audit.models import AuditResult, Category, Finding
-from quantproof.audit.severity import Confidence, Severity
-from quantproof.audit.static.analyzer import analyze_file, analyze_source
-from quantproof.audit.statistical.analyzer import analyze_statistics
-from quantproof.audit.statistical.selection import analyze_selection, walk_forward_single
+from quantproof.analyzers.causal.runner import causality_findings, run_causality_test
+from quantproof.analyzers.execution.analyzer import analyze_execution, metrics, realistic_simulation
+from quantproof.analyzers.leakage.detector import feature_leakage_findings, signal_foresight_finding
+from quantproof.analyzers.static.analyzer import analyze_file, analyze_source
+from quantproof.analyzers.statistical.analyzer import analyze_statistics
+from quantproof.analyzers.statistical.selection import analyze_selection, walk_forward_single
 from quantproof.config import AuditConfig
 from quantproof.data.loaders import DataSource, describe_source, load_frame, prepare_prices
 from quantproof.data.schemas import primary_price_column
@@ -45,12 +43,14 @@ from quantproof.experiments.hashing import hash_dataframe, hash_file, schema_of
 from quantproof.experiments.lineage import Lineage
 from quantproof.experiments.manifest import build_manifest
 from quantproof.regimes.analysis import regime_analysis
+from quantproof.results import AuditResult, Category, Finding
 from quantproof.sensitivity.parameter_analysis import (
     analyze_parameter_surface,
     render_ascii_surface,
     sensitivity_findings,
     surface_matrix,
 )
+from quantproof.severity import Confidence, Severity
 from quantproof.statistics.sharpe import sharpe_ratios
 from quantproof.strategy import StrategySpec, load_strategy
 

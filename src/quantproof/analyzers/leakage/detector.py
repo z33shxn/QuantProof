@@ -21,8 +21,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import binomtest
 
-from quantproof.audit.models import Category, Finding
-from quantproof.audit.severity import Confidence, Severity
+from quantproof.results import Category, Finding
+from quantproof.severity import Confidence, Severity
 
 
 def _corr(a: pd.Series, b: pd.Series) -> float:

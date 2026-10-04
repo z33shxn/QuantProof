@@ -113,8 +113,8 @@ def audit_cmd(
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Show every finding.")] = False,
 ) -> None:
     """Audit a strategy (with --strategy and --data) or pre-computed returns (--returns)."""
-    from quantproof.audit.engine import audit
     from quantproof.data.loaders import load_frame, load_returns, prepare_prices
+    from quantproof.engine import audit
     from quantproof.reports import render, write_report
     from quantproof.reports.text import render_text
 
@@ -180,10 +180,10 @@ def validate(
     fail_on: Annotated[FailOn, typer.Option("--fail-on")] = FailOn.fail,
 ) -> None:
     """Run data-quality checks (QP-DATA-*) on a price file."""
-    from quantproof.audit.models import AuditResult
     from quantproof.data.loaders import load_frame
     from quantproof.data.validation import validate_data
     from quantproof.reports.text import render_text
+    from quantproof.results import AuditResult
 
     try:
         cfg = _load_config(config, False, None)
@@ -207,9 +207,9 @@ def scan(
     show_passes: Annotated[bool, typer.Option("--show-passes")] = False,
 ) -> None:
     """Static analysis only (QP001–QP015) on a file or directory tree."""
-    from quantproof.audit.models import AuditResult
-    from quantproof.audit.static import analyze_path
+    from quantproof.analyzers.static import analyze_path
     from quantproof.reports.text import render_text
+    from quantproof.results import AuditResult
 
     if not path.exists():
         _error(f"{path} does not exist.")
@@ -225,7 +225,7 @@ def scan(
 @app.command()
 def rules() -> None:
     """List every static and runtime rule identifier."""
-    from quantproof.audit.static import list_rules
+    from quantproof.analyzers.static import list_rules
 
     for r in list_rules():
         typer.echo(f"{r['id']:<8} {r['title']}")

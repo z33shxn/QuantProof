@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from quantproof._utils import format_number
-from quantproof.audit.models import Category
-from quantproof.audit.severity import Severity
+from quantproof.results import Category
+from quantproof.severity import Severity
 
 if TYPE_CHECKING:
-    from quantproof.audit.models import AuditResult
+    from quantproof.results import AuditResult
 
 SECTION_TITLES = {
     Category.DATA: "DATA VALIDATION",

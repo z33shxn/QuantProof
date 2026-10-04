@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from quantproof.audit.leakage import feature_leakage_findings, signal_foresight_finding
-from quantproof.audit.severity import Severity
+from quantproof.analyzers.leakage import feature_leakage_findings, signal_foresight_finding
+from quantproof.severity import Severity
 
 
 def test_feature_copies_target_and_future_returns(prices):

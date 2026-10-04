@@ -40,7 +40,7 @@ After changing dependencies, run `uv lock` and commit `uv.lock`.
 
 ## Adding a static rule
 
-1. Add a class to `src/quantproof/audit/static/rules.py`:
+1. Add a class to `src/quantproof/analyzers/static/rules.py`:
 
    ```python
    @register

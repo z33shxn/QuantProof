@@ -9,7 +9,7 @@ far better than anything achievable in real time.
 
 ## Implementation
 
-`quantproof.audit.static` parses Python source with the standard-library `ast` module
+`quantproof.analyzers.static` parses Python source with the standard-library `ast` module
 (never regular expressions on code) and builds a `ModuleContext` once per file:
 
 - every call site with its name resolved through import aliases

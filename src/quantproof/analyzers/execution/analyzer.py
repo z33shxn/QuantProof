@@ -32,11 +32,11 @@ from typing import Any, TypeVar
 import numpy as np
 import pandas as pd
 
-from quantproof.audit.models import Category, Finding
-from quantproof.audit.severity import Confidence, Severity
 from quantproof.config import ExecutionConfig
 from quantproof.execution.costs import TransactionCostModel
 from quantproof.execution.fills import SimulationResult, simulate
+from quantproof.results import Category, Finding
+from quantproof.severity import Confidence, Severity
 from quantproof.statistics.sharpe import annualized_return, max_drawdown, sharpe_ratio
 
 _T = TypeVar("_T", pd.Series, pd.DataFrame)

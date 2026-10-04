@@ -34,10 +34,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from quantproof.audit.causal.perturbation import as_float_frame, perturb_future
-from quantproof.audit.models import Category, Finding, Location
-from quantproof.audit.severity import Confidence, Severity
+from quantproof.analyzers.causal.perturbation import as_float_frame, perturb_future
 from quantproof.config import CausalityConfig
+from quantproof.results import Category, Finding, Location
+from quantproof.severity import Confidence, Severity
 
 
 @dataclass

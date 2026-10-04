@@ -10,7 +10,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
 
-from quantproof.audit.causal import perturb_future
+from quantproof.analyzers.causal import perturb_future
 from quantproof.data import generate_prices, validate_data
 from quantproof.experiments import hash_dataframe
 from quantproof.statistics import sharpe_ratio
