@@ -2103,7 +2103,7 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.10" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
     { name = "twine", marker = "extra == 'dev'", specifier = ">=5" },
-    { name = "typer", specifier = ">=0.12" },
+    { name = "typer", specifier = ">=0.13" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
 ]
 provides-extras = ["all", "dev", "ml", "parquet"]

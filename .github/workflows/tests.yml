@@ -35,3 +35,16 @@ jobs:
         with:
           name: coverage-xml
           path: coverage.xml
+
+  lowest-direct:
+    name: pytest (Python 3.10, lowest direct dependencies)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install the oldest allowed versions of direct dependencies
+        run: |
+          uv venv --python 3.10
+          uv pip install --resolution lowest-direct -e ".[dev]"
+      - name: Run tests
+        run: uv run --no-sync pytest -q
