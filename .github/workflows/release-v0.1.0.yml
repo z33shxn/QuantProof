@@ -1,0 +1,56 @@
+# Temporary one-shot workflow: tags v0.1.0 and publishes its GitHub Release.
+# Removed again right after the release is verified.
+name: Release v0.1.0
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/release-v0.1.0.yml]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-v0.1.0
+  cancel-in-progress: false
+
+env:
+  TAG: v0.1.0
+  RELEASE_SHA: b1bc3820348319a0c762bef7884b60991cedfe9f
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the release commit is on main and the tag is new
+        run: |
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG"; then
+            echo "::error::$TAG already exists; refusing to recreate it."
+            exit 1
+          fi
+
+      - name: Create and push the annotated tag
+        run: |
+          git config user.name "Mohammed Zeeshan"
+          git config user.email "mohammedzeeshan.cse2024@citchennai.net"
+          git tag -a "$TAG" "$RELEASE_SHA" -m "QuantProof $TAG"
+          git push origin "refs/tags/$TAG"
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "QuantProof $TAG" --notes-file .github/release-notes-v0.1.0.md --latest
+
+      - name: Verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(git ls-remote origin "refs/tags/$TAG^{}" | cut -f1)" = "$RELEASE_SHA"
+          gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name, .draft, .prerelease'
