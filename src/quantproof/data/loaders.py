@@ -16,6 +16,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from quantproof.data.panel import find_symbol_column, flatten_multiindex
 from quantproof.data.schemas import find_timestamp_column, normalize_column_name
 from quantproof.errors import QuantProofDataError
 
@@ -76,6 +77,8 @@ def load_frame(source: DataSource, *, timestamp_column: str | None = None) -> pd
             raise QuantProofDataError(
                 f"Unsupported data format {suffix!r} for {path}. Use .csv or .parquet."
             )
+    if isinstance(frame.index, pd.MultiIndex):
+        frame = flatten_multiindex(frame)
     frame.columns = [normalize_column_name(c) for c in frame.columns]
     if timestamp_column is not None:
         timestamp_column = normalize_column_name(timestamp_column)
@@ -142,17 +145,87 @@ def parse_timestamps(raw: pd.Series | pd.Index) -> ParsedTimestamps:
     return ParsedTimestamps(idx, n_invalid, examples, n_naive, n_aware, distinct, tz_aware)
 
 
+def _coerce_numeric(data: pd.DataFrame) -> pd.DataFrame:
+    for col in data.columns:
+        dtype = data[col].dtype
+        if pd.api.types.is_object_dtype(dtype) or pd.api.types.is_string_dtype(dtype):
+            converted = pd.to_numeric(data[col], errors="coerce")
+            if converted.notna().sum() == data[col].notna().sum() and converted.notna().any():
+                data[col] = converted
+    return data
+
+
+def prepare_panel(
+    frame: pd.DataFrame,
+    *,
+    timestamp_column: str | None = None,
+    symbol_column: str | None = None,
+    keep: str = "last",
+) -> PreparedData:
+    """Prepare long-format multi-asset data into a ``(timestamp, symbol)`` MultiIndex panel."""
+    actions: list[str] = []
+    frame = flatten_multiindex(frame)
+    sym_col = (
+        normalize_column_name(symbol_column) if symbol_column else find_symbol_column(frame.columns)
+    )
+    if sym_col is None or sym_col not in frame.columns:
+        raise QuantProofDataError("No symbol column found for panel data (expected e.g. 'symbol').")
+    ts_col = resolve_timestamp_column(frame, timestamp_column)
+    if ts_col is None:
+        raise QuantProofDataError(
+            "Panel data needs a timestamp column (or a (timestamp, symbol) MultiIndex)."
+        )
+    parsed = parse_timestamps(frame[ts_col])
+    data = frame.drop(columns=[ts_col]).copy()
+    data["__ts__"] = parsed.values
+    invalid = data["__ts__"].isna().to_numpy()
+    if invalid.any():
+        data = data.loc[~invalid]
+        actions.append(f"Dropped {int(invalid.sum())} row(s) with invalid timestamps.")
+    data[sym_col] = data[sym_col].astype(str)
+    data = data.set_index(["__ts__", sym_col])
+    data.index = data.index.set_names(["timestamp", "symbol"])
+    if not data.index.is_monotonic_increasing:
+        data = data.sort_index(kind="mergesort")
+        actions.append("Sorted rows by (timestamp, symbol).")
+    dup = data.index.duplicated(keep="first" if keep == "first" else "last")
+    if dup.any():
+        data = data.loc[~dup]
+        actions.append(
+            f"Removed {int(dup.sum())} duplicated (timestamp, symbol) row(s), keeping the {keep}."
+        )
+    data = _coerce_numeric(data)
+    if data.select_dtypes(include=[np.number]).shape[1] == 0:
+        raise QuantProofDataError(
+            "No numeric columns found in the panel; a 'close' column is required."
+        )
+    if data.index.get_level_values(0).nunique() < 2:
+        raise QuantProofDataError("Panel data needs at least 2 distinct timestamps.")
+    return PreparedData(prices=data, actions=actions, timestamp_column=ts_col)
+
+
 def prepare_prices(
     frame: pd.DataFrame,
     *,
     timestamp_column: str | None = None,
+    symbol_column: str | None = None,
     keep: str = "last",
 ) -> PreparedData:
-    """Turn a raw frame into a sorted, de-duplicated, DatetimeIndex-ed price table.
+    """Turn a raw frame into a sorted, de-duplicated price table.
 
-    Every modification is recorded in :attr:`PreparedData.actions`; nothing is
-    changed silently.
+    Single-asset data get a DatetimeIndex; data with a symbol column (or a
+    ``(timestamp, symbol)`` MultiIndex) become a panel (see :mod:`quantproof.data.panel`).
+    Every modification is recorded in :attr:`PreparedData.actions`; nothing is changed
+    silently.
     """
+    if (
+        symbol_column is not None
+        or isinstance(frame.index, pd.MultiIndex)
+        or find_symbol_column(frame.columns)
+    ):
+        return prepare_panel(
+            frame, timestamp_column=timestamp_column, symbol_column=symbol_column, keep=keep
+        )
     actions: list[str] = []
     ts_col = resolve_timestamp_column(frame, timestamp_column)
     if ts_col is None:
@@ -176,11 +249,7 @@ def prepare_prices(
         data = data.loc[~dup]
         actions.append(f"Removed {int(dup.sum())} duplicated timestamp(s), keeping the {keep}.")
 
-    for col in data.columns:
-        if data[col].dtype == object:
-            converted = pd.to_numeric(data[col], errors="coerce")
-            if converted.notna().sum() == data[col].notna().sum():
-                data[col] = converted
+    data = _coerce_numeric(data)
     numeric = data.select_dtypes(include=[np.number])
     if numeric.shape[1] == 0:
         raise QuantProofDataError(
@@ -189,18 +258,23 @@ def prepare_prices(
         )
     if len(data) < 2:
         raise QuantProofDataError(
-            f"Only {len(data)} usable row(s) after cleaning; at least 2 are required."
+            f"Only {len(data)} usable row(s) after cleaning; at least 2 are required. Check the "
+            "file and the timestamp column (data validation reports QP-DATA-014)."
         )
     return PreparedData(prices=data, actions=actions, timestamp_column=ts_col)
 
 
-def load_prices(source: DataSource, *, timestamp_column: str | None = None) -> pd.DataFrame:
+def load_prices(
+    source: DataSource, *, timestamp_column: str | None = None, symbol_column: str | None = None
+) -> pd.DataFrame:
     """Convenience: load and prepare price data in one call.
 
     Raises :class:`QuantProofDataError` if the data cannot be used.
     """
     frame = load_frame(source, timestamp_column=timestamp_column)
-    return prepare_prices(frame, timestamp_column=timestamp_column).prices
+    return prepare_prices(
+        frame, timestamp_column=timestamp_column, symbol_column=symbol_column
+    ).prices
 
 
 def load_returns(source: DataSource, *, column: str | None = None) -> pd.Series:

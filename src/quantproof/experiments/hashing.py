@@ -70,7 +70,12 @@ def hash_dataframe(df: pd.DataFrame | pd.Series) -> str:
     h = hashlib.sha256()
     h.update(f"shape={frame.shape}".encode())
     h.update(b"index\x00")
-    _hash_values(h, frame.index)
+    if isinstance(frame.index, pd.MultiIndex):
+        for level in range(frame.index.nlevels):
+            h.update(f"\x1elevel{level}\x00".encode())
+            _hash_values(h, frame.index.get_level_values(level))
+    else:
+        _hash_values(h, frame.index)
     for col in frame.columns:
         h.update(b"\x1ecol\x00" + str(col).encode("utf-8") + b"\x00")
         _hash_values(h, frame[col])
