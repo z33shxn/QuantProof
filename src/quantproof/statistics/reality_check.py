@@ -15,6 +15,16 @@ Hansen's Superior Predictive Ability (consistent version, SPA_c)
 
 p-values use ``(1 + #{T* >= T}) / (1 + B)``, a standard finite-sample correction.
 
+``ω_k`` (the standard deviation used to studentize SPA) is estimated from the same
+stationary bootstrap draws rather than a HAC kernel estimator; Hansen (2005) allows
+either. If every ``ω_k`` is zero (constant differentials) the studentized statistic is
+undefined and the SPA p-value is reported as NaN rather than a spuriously small number.
+
+What these tests do **not** show: a small p-value says the best strategy's mean
+differential is unlikely to be zero *given the strategies supplied*; it does not
+correct for strategies you tried but did not include, and it says nothing about future
+performance or economic significance after costs.
+
 Assumptions: the return differentials are strictly stationary and weakly dependent
 (so the stationary bootstrap is valid); the set of tested strategies is the *full*
 set that was searched. Omitting tried strategies invalidates the correction.
@@ -108,7 +118,10 @@ def reality_check(
     p_rc = float((1 + np.sum(v_star >= stat)) / (1 + n_bootstrap))
 
     omega = centered.std(axis=0, ddof=1)
-    omega = np.where(omega > 0, omega, np.nan)
+    # Constant differentials give omega ≈ 0 up to floating-point noise, which would make the
+    # studentized statistic explode; treat them as having no variance.
+    degenerate = d.std(axis=0) <= 1e-12 * np.maximum(np.abs(dbar), 1e-300)
+    omega = np.where((omega > 0) & ~degenerate, omega, np.nan)
     t_k = root_n * dbar / omega
     spa_stat = float(max(np.nanmax(t_k), 0.0)) if np.isfinite(t_k).any() else float("nan")
     threshold = -math.sqrt(2.0 * math.log(math.log(n))) if n > math.e else -np.inf
@@ -117,8 +130,13 @@ def reality_check(
     # cannot drive the bootstrap maximum; all others are recentred at zero.
     mu_c = np.where(keep, dbar, 0.0)
     z = root_n * (boot_means - mu_c) / omega
-    t_star = np.maximum(np.nanmax(z, axis=1), 0.0)
-    p_spa = float((1 + np.sum(t_star >= spa_stat)) / (1 + n_bootstrap))
+    if math.isfinite(spa_stat):
+        t_star = np.maximum(np.nanmax(z, axis=1), 0.0)
+        p_spa = float((1 + np.sum(t_star >= spa_stat)) / (1 + n_bootstrap))
+    else:
+        # Previously this produced p = 1/(1+B) (every comparison with NaN is False),
+        # i.e. a "significant" result for degenerate input.
+        p_spa = float("nan")
     best = int(np.argmax(dbar))
     return RealityCheckResult(
         statistic=stat,

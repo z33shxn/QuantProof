@@ -261,6 +261,18 @@ def cpcv_selection(
     }
 
 
+def _not_computed(rule_id: str, name: str, exc: Exception) -> Finding:
+    return Finding(
+        id=rule_id,
+        category=Category.VALIDATION,
+        severity=Severity.INFO,
+        title=f"{name} not computed",
+        message=f"{name} could not be computed: {exc}",
+        evidence={"error": str(exc)},
+        recommendation="Provide more observations or reduce the number of partitions/groups.",
+    )
+
+
 def analyze_selection(
     matrix: pd.DataFrame,
     cfg: ValidationConfig,
@@ -292,6 +304,7 @@ def analyze_selection(
             findings.append(oos_finding(ev, selection=True))
         except QuantProofInputError as exc:
             section["walk_forward"] = {"error": str(exc)}
+            findings.append(_not_computed("QP-VAL-001", "Walk-forward out-of-sample test", exc))
 
     if cfg.pbo:
         try:
@@ -313,6 +326,7 @@ def analyze_selection(
                         f"PBO = {pbo.pbo:.2f} over {pbo.n_combinations} CSCV combinations "
                         f"(S={pbo.n_partitions}, N={pbo.n_strategies}); probability of OOS loss "
                         f"{pbo.prob_oos_loss:.2f}. {pbo.to_dict()['interpretation']}"
+                        + "".join(f" Note: {n}" for n in pbo.notes)
                     ),
                     evidence=pbo.to_dict(include_arrays=False),
                     why_it_matters=(
@@ -320,11 +334,14 @@ def analyze_selection(
                         "configuration out of sample."
                     ),
                     recommendation="Simplify the search or require OOS confirmation.",
-                    confidence=Confidence.MEDIUM,
+                    confidence=Confidence.LOW
+                    if any("noisy" in n for n in pbo.notes)
+                    else Confidence.MEDIUM,
                 )
             )
         except QuantProofInputError as exc:
             section["pbo"] = {"error": str(exc)}
+            findings.append(_not_computed("QP-VAL-002", "PBO", exc))
 
     if cfg.cpcv:
         try:
@@ -350,22 +367,33 @@ def analyze_selection(
             )
         except QuantProofInputError as exc:
             section["cpcv"] = {"error": str(exc)}
+            findings.append(_not_computed("QP-VAL-003", "CPCV", exc))
 
     if cfg.reality_check:
         try:
             rc = reality_check(matrix, n_bootstrap=max(200, stats_cfg.n_bootstrap // 2), seed=seed)
             section["reality_check"] = rc.to_dict()
-            bad = rc.spa_p_value > alpha
+            undefined = not math.isfinite(rc.spa_p_value)
+            bad = undefined or rc.spa_p_value > alpha
             findings.append(
                 Finding(
                     id="QP-VAL-004",
                     category=Category.VALIDATION,
-                    severity=Severity.WARN if bad else Severity.PASS,
+                    severity=Severity.INFO
+                    if undefined
+                    else (Severity.WARN if bad else Severity.PASS),
                     title="Data-snooping test (Reality Check / SPA)",
                     message=(
                         f"Best of {rc.n_strategies} configurations vs zero-return benchmark: White "
                         f"RC p = {rc.p_value:.3f}, Hansen SPA_c p = {rc.spa_p_value:.3f} "
                         f"(threshold {alpha:.2f})."
+                        + (
+                            " SPA is undefined because every return differential has zero "
+                            "variance; no conclusion is drawn."
+                            if undefined
+                            else " H0: no configuration has a positive mean return. Rejecting "
+                            "H0 does not account for variants that were tried but not supplied."
+                        )
                     ),
                     evidence=rc.to_dict(),
                     why_it_matters=(
@@ -378,4 +406,5 @@ def analyze_selection(
             )
         except QuantProofInputError as exc:
             section["reality_check"] = {"error": str(exc)}
+            findings.append(_not_computed("QP-VAL-004", "Reality Check / SPA", exc))
     return section, findings

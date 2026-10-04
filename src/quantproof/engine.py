@@ -572,10 +572,13 @@ def _audit_strategy(
         trial_sr = None
     if cfg.statistics.trials is not None:
         n_trials, declared_trials = cfg.statistics.trials, True
+        trials_source = "statistics.trials (declared in config)"
     elif spec.param_grid:
         n_trials, declared_trials = spec.grid_size, True
+        trials_source = "PARAM_GRID size"
     else:
         n_trials, declared_trials = 1, False
+        trials_source = "not declared (assumed 1)"
     stat_section, stat_findings = analyze_statistics(
         net,
         cfg.statistics,
@@ -588,6 +591,8 @@ def _audit_strategy(
             for k, v in exec_section["scenarios"].items()
             if k in ("naive", "declared")
         },
+        trials_source=trials_source,
+        trial_returns=matrix.loc[start:] if matrix.shape[1] >= 2 else None,
     )
     sections["statistics"] = stat_section
     findings += stat_findings
@@ -784,10 +789,13 @@ def _audit_artifacts(
     )
     if cfg.statistics.trials is not None:
         n_trials, declared = cfg.statistics.trials, True
+        trials_source = "statistics.trials (declared in config)"
     elif trial is not None:
         n_trials, declared = trial.shape[1], True
+        trials_source = "columns of trial_returns"
     else:
         n_trials, declared = 1, False
+        trials_source = "not declared (assumed 1)"
     stat_section, stat_findings = analyze_statistics(
         returns,
         cfg.statistics,
@@ -795,6 +803,8 @@ def _audit_artifacts(
         trials_declared=declared,
         trial_sharpes=trial_sr,
         seed=cfg.seed,
+        trials_source=trials_source,
+        trial_returns=trial if trial is not None and trial.shape[1] >= 2 else None,
     )
     sections["statistics"] = stat_section
     findings += stat_findings

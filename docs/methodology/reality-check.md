@@ -20,6 +20,16 @@ n_bootstrap=1000, block_length=None, seed=42)` on a `T × K` matrix:
   (negative) mean in the bootstrap, so clearly poor strategies cannot drive the maximum;
   the others are recentred at zero.
 - p-values use `(1 + #{T* ≥ T}) / (1 + B)`.
+- `ω_k` is estimated from the bootstrap draws (Hansen allows this or a HAC estimator).
+  If every differential is constant, the studentized statistic is undefined: the SPA
+  p-value is `NaN` and QP-VAL-004 is INFO, never PASS. (Before this was fixed, degenerate
+  input produced `p = 1/(1+B)`, a spurious "significant" result.)
+
+**Null hypotheses.** RC and SPA: H0 `max_k E[d_k] ≤ 0` — no supplied strategy beats the
+benchmark in expectation. Rejection says the *best supplied* strategy's mean differential
+is unlikely to be zero given the whole supplied set. It does **not** account for
+strategies tried but not supplied, does not estimate future performance, and says nothing
+about economic significance after costs.
 - Block length defaults to the Politis-White automatic choice for the best strategy.
 
 `adjust_pvalues(p, method)` provides Bonferroni, Holm (step-down FWER) and

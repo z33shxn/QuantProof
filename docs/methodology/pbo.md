@@ -30,6 +30,26 @@ Sharpe ratios for each combination are computed from per-block sums of `r` and `
 each combination costs `O(N)` after `O(T·N)` preprocessing. `C(16, 8) = 12,870`; above
 `max_combinations` a deterministic seeded subset is used and both counts are reported.
 
+## Null hypothesis and reading
+
+PBO is **not** a p-value and has no formal null hypothesis. It estimates the probability
+that the configuration chosen in-sample ranks at or below the median out of sample.
+Reading guide (each asserted with tolerance ranges in `tests/unit/test_statistics_review.py`):
+
+| Situation | Expected PBO |
+|---|---|
+| pure noise, even N | ≈ 0.5 (slightly above 0.5 for odd N: median ties count as overfit) |
+| one configuration with a persistent edge | near 0 |
+| anti-persistent configurations (IS winners are OOS losers) | near 1 |
+
+The implementation is also checked against an independent naive loop over every
+combination (identical logits).
+
+**Insufficient data.** Fewer than two observations per block is an error; the audit
+then reports QP-VAL-002 as INFO "PBO not computed" with the reason. With fewer than 20
+observations per block, or when combinations are sub-sampled, the result carries
+`notes` and the finding's confidence is lowered.
+
 ## Assumptions
 
 - Blocks are exchangeable enough that any half of them is a fair in-sample set (CSCV
@@ -45,6 +65,8 @@ combinations, 200 evaluated configurations).
 
 ## Limitations
 
+PBO does **not** show whether the selected strategy is profitable, and it ignores
+configurations that were tried but not supplied.
 PBO measures the selection procedure on this sample. A low PBO with uniformly poor
 configurations is still a poor strategy (check the OOS Sharpe and probability of loss).
 Very short blocks make Sharpe estimates noisy; keep `T / S` reasonably large.
