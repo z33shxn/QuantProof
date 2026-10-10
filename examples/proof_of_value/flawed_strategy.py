@@ -1,4 +1,4 @@
-"""The cross-sectional momentum idea as it often looks in a first notebook — with bugs.
+"""The cross-sectional momentum idea as it often looks in a first notebook, bugs included.
 
 Three common mistakes, each realistic and easy to miss:
 
@@ -7,7 +7,7 @@ Three common mistakes, each realistic and easy to miss:
 2. Execution is declared as filling at the same close that produced the signal, with
    no costs.
 3. Only the best parameter set is shown (no PARAM_GRID), so selection bias cannot be
-   measured — the 36 variants tried are not declared.
+   measured: the 36 variants tried are not declared.
 
 The fixed version is ``examples/cross_sectional_momentum/strategy.py``.
 """

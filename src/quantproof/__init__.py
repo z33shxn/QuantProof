@@ -1,4 +1,4 @@
-"""QuantProof — trust your backtest before you trust your strategy.
+"""QuantProof: trust your backtest before you trust your strategy.
 
 Research-grade validation and auditing for quantitative trading strategies.
 

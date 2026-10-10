@@ -107,8 +107,8 @@ def generate_universe(
     Each symbol's log return is ``beta_i · market_t + alpha_i,t + e_i,t`` where ``alpha_i,t``
     is a slowly varying AR(1) drift (``drift_persistence``, innovation ``drift_vol``). A
     persistent drift makes past relative returns weakly predictive of future relative
-    returns, i.e. a mild, noisy cross-sectional momentum effect exists by construction —
-    with these defaults it is small relative to noise and costs.
+    returns, i.e. a mild, noisy cross-sectional momentum effect exists by construction.
+    With these defaults it is small relative to noise and costs.
     """
     if n_symbols < 2 or n < 2:
         raise ValueError("need at least 2 symbols and 2 bars")

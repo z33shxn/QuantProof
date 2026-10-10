@@ -38,4 +38,4 @@ Rules:
 Callables are accepted directly: `audit(strategy=my_function, data=prices)`.
 
 **Security:** loading a strategy file executes it in your Python process. Only audit code
-you trust or use an isolated environment — see [SECURITY.md](../../SECURITY.md).
+you trust or use an isolated environment. See [SECURITY.md](../../SECURITY.md).

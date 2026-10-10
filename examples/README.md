@@ -1,6 +1,6 @@
 # Examples
 
-Deliberately constructed strategies used to show — and test — what QuantProof detects.
+Deliberately constructed strategies used to show (and test) what QuantProof detects.
 See [docs/examples/README.md](../docs/examples/README.md) for the full walkthrough and
 results.
 

@@ -9,7 +9,7 @@ QuantProof expresses the embargo as
 
 * a fraction of the sample (``0 <= embargo < 1``, converted with ``ceil(embargo * n)``),
 * an integer number of bars (``embargo >= 1``), or
-* a duration (``pd.Timedelta`` / ``"5D"``) — only with event-time labels: training
+* a duration (``pd.Timedelta`` / ``"5D"``), only with event-time labels: training
   observations that *start* within that duration after the end of the test block's label
   span are removed.
 

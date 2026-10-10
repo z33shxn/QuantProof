@@ -3,9 +3,9 @@
 The overall verdict is derived from findings by three ordered rules
 (`quantproof.results.determine_verdict`):
 
-1. **FAIL** if at least one finding has severity FAIL — a critical research-validity
+1. **FAIL** if at least one finding has severity FAIL: a critical research-validity
    violation was established.
-2. **WARN** if no finding is FAIL and at least one is WARN — an important methodological
+2. **WARN** if no finding is FAIL and at least one is WARN: an important methodological
    weakness exists.
 3. **PASS** if every executed check produced only PASS or INFO findings.
 

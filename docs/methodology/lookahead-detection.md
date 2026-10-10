@@ -25,8 +25,8 @@ far better than anything achievable in real time.
 
 Every static rule works at one of three documented levels. Higher levels find more and
 are more fragile; findings always say which rule fired and with what *analysis
-confidence* (how sure the analyzer is that the matched pattern means what the rule says
-— not a statistical probability).
+confidence* (how sure the analyzer is that the matched pattern means what the rule says,
+not a statistical probability).
 
 | Level | Name | What it can resolve | Example |
 |---|---|---|---|
@@ -50,10 +50,10 @@ in loops (QP003), full-sample normalisation (QP007) and non-causal operations su
 
 **Sinks** decide how a source is used:
 
-- **live decision** — a value returned from `generate_signals` (or any strategy entry
+- **live decision**: a value returned from `generate_signals` (or any strategy entry
   point, including the name of a callable passed to `audit`), or assigned to a
   signal/position/weight name or column, or a model *feature*;
-- **label / analysis** — the target argument of `fit`, a name like `y`/`target`/`label`,
+- **label / analysis**: the target argument of `fit`, a name like `y`/`target`/`label`,
   or plotting/reporting code.
 
 The same pattern is therefore reported differently by usage:
@@ -62,7 +62,7 @@ The same pattern is therefore reported differently by usage:
 |---|---|---|
 | reaches a live decision | FAIL | **FORBIDDEN IN LIVE DECISION** |
 | only builds a label or analysis output | INFO | **LEGITIMATE FOR LABEL / ANALYSIS** |
-| cannot be classified | WARN | — |
+| cannot be classified | WARN | n/a |
 
 Full-sample normalisation (QP007) is always a WARN (it is legitimate for offline analysis
 and cross-sectional normalisation across symbols at one timestamp is causal). A scaler
@@ -118,4 +118,4 @@ checks behaviour, and [leakage diagnostics](../api/rules.md#leakage--methodology
 - Kaufman, S., Rosset, S., Perlich, C. & Stitelman, O. (2012). Leakage in data mining:
   formulation, detection, and avoidance. *ACM TKDD*, 6(4).
 - López de Prado, M. (2018). *Advances in Financial Machine Learning*. Wiley, ch. 7 and 11.
-- Python documentation, `ast` — Abstract Syntax Trees.
+- Python documentation, `ast`: Abstract Syntax Trees.

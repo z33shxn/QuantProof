@@ -1,4 +1,4 @@
-"""Sharpe ratio, moments and standard error — checked against independent references."""
+"""Sharpe ratio, moments and standard error, checked against independent references."""
 
 from __future__ import annotations
 

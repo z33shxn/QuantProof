@@ -11,7 +11,7 @@ investigate, how to fix, known limitations, and an example.
 >>> len([r for r in list_rules() if r.analysis == "static"])
 16
 
-``confidence`` on a finding is *analysis confidence* — how sure the analyzer is that
+``confidence`` on a finding is *analysis confidence*: how sure the analyzer is that
 the pattern it matched means what the rule says. It is not a statistical probability.
 """
 
@@ -975,15 +975,15 @@ def rules_markdown() -> str:
         "policy. The same data is available as `quantproof rules --json` and "
         "`quantproof.rules.list_rules()`. *Analysis* is the level at which the rule works: "
         "`data`, `static` (source code), `runtime` (executes the strategy), `statistical` or "
-        "`meta`. Confidence attached to findings is *analysis confidence* — how sure the "
-        "analyzer is that the matched pattern means what the rule says — not a statistical "
+        "`meta`. Confidence attached to findings is *analysis confidence*, meaning how sure the "
+        "analyzer is that the matched pattern means what the rule says. It is not a statistical "
         "probability.",
         "",
     ]
     categories = list(dict.fromkeys(r.category for r in _RULES))
     for cat in categories:
         title, link = _CATEGORY_TITLES.get(cat, (cat.title(), ""))
-        out += [f"## {title}" + (f" — [methodology]({link})" if link else ""), ""]
+        out += [f"## {title}" + (f" ([methodology]({link}))" if link else ""), ""]
         out += [
             "| ID | Name | Analysis | Max severity | Severity policy |",
             "|---|---|---|---|---|",

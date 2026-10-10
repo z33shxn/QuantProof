@@ -170,7 +170,7 @@ footer dt { font-weight: 600; } footer dd { margin: 0; overflow-wrap: anywhere; 
 {% macro finding_block(f) %}
 <div class="finding {{ f.severity.value }}">
   <div class="head"><span class="st-{{ f.severity.value }}">{{ symbols[f.severity.value] }} {{ f.severity.value }}</span> · <code>{{ f.id }}</code> · {{ f.title }}{% if f.confidence %} <span class="meta">(analysis confidence: {{ f.confidence.value }})</span>{% endif %}{% if f.usage %} <span class="usage {{ f.usage.value }}">{{ f.usage.label }}</span>{% endif %}</div>
-  {% if f.location and f.location.describe() %}<div class="loc">{{ f.location.describe() }}{% if f.location.snippet %} — <code>{{ f.location.snippet }}</code>{% endif %}</div>{% endif %}
+  {% if f.location and f.location.describe() %}<div class="loc">{{ f.location.describe() }}{% if f.location.snippet %}: <code>{{ f.location.snippet }}</code>{% endif %}</div>{% endif %}
   <p>{{ f.message }}</p>
   {% if f.is_issue and f.why_it_matters %}<p class="why"><b>Why it matters.</b> {{ f.why_it_matters }}</p>{% endif %}
   {% if f.is_issue and f.impact %}<p class="why"><b>Potential impact.</b> {{ f.impact }}</p>{% endif %}
@@ -242,7 +242,7 @@ footer dt { font-weight: 600; } footer dd { margin: 0; overflow-wrap: anywhere; 
 {% endif %}
 {% if v.pbo and v.pbo.pbo is defined %}
 <h3>Probability of Backtest Overfitting (CSCV)</h3>
-<p>PBO = <b>{{ v.pbo.pbo|num(2) }}</b> — S={{ v.pbo.n_partitions }} partitions, {{ v.pbo.n_combinations }} of {{ v.pbo.n_combinations_total }} combinations, N={{ v.pbo.n_strategies }}. Degradation slope (OOS on IS Sharpe) {{ v.pbo.degradation_slope|num(2) }}; probability of OOS loss {{ v.pbo.prob_oos_loss|num(2) }}. {{ v.pbo.interpretation }}</p>
+<p>PBO = <b>{{ v.pbo.pbo|num(2) }}</b> (S={{ v.pbo.n_partitions }} partitions, {{ v.pbo.n_combinations }} of {{ v.pbo.n_combinations_total }} combinations, N={{ v.pbo.n_strategies }}). Degradation slope (OOS on IS Sharpe) {{ v.pbo.degradation_slope|num(2) }}; probability of OOS loss {{ v.pbo.prob_oos_loss|num(2) }}. {{ v.pbo.interpretation }}</p>
 {% if v.pbo.notes %}<ul>{% for n in v.pbo.notes %}<li class="meta">{{ n }}</li>{% endfor %}</ul>{% endif %}
 {% if pbo_chart %}<div class="card">{{ pbo_chart|safe }}</div><p class="meta">Distribution of logits λ of the in-sample winner's out-of-sample rank; mass at λ ≤ 0 is the PBO.</p>{% endif %}
 {% endif %}
@@ -313,7 +313,7 @@ In-sample vs out-of-sample ({{ sn.is_oos.split }}): Spearman ρ = {{ sn.is_oos.s
 {{ finding_list(by_cat.sensitivity) }}
 
 <h2 id="reproducibility">11. Reproducibility manifest</h2>
-<p>Content hash <code>{{ manifest.content_hash }}</code> — identical for runs with the same code, data, configuration, environment and seed.</p>
+<p>Content hash <code>{{ manifest.content_hash }}</code>. It is identical for runs with the same code, data, configuration, environment and seed.</p>
 <pre>{{ manifest_yaml }}</pre>
 
 <h2 id="limitations">12. Methodology and limitations</h2>

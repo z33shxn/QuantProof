@@ -82,7 +82,7 @@ def test_json_round_trip(lookahead_result, tmp_path):
 
 def test_markdown_and_text(lookahead_result):
     md = render_markdown(lookahead_result)
-    assert md.startswith("# QuantProof audit — 🔴 FAIL")
+    assert md.startswith("# QuantProof audit: 🔴 FAIL")
     assert "`QP001`" in md and "Reproducibility manifest" in md and "## Limitations" in md
     txt = render_text(lookahead_result)
     assert "QUANTPROOF AUDIT" in txt and "OVERALL: FAIL" in txt and "✗ QP001" in txt

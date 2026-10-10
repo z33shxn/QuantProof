@@ -2,8 +2,8 @@
 
 Scenarios simulated (same signals, different assumptions)
 ---------------------------------------------------------
-``naive``      fill at the signal bar's close (lag 0), no costs — the most common
-               optimistic backtest.
+``naive``      fill at the signal bar's close (lag 0), no costs. This is the most
+               common optimistic backtest.
 ``declared``   the strategy's own ``EXECUTION`` assumptions (if declared).
 ``realistic``  the auditor's :class:`~quantproof.config.ExecutionConfig`.
 

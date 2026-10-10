@@ -6,7 +6,7 @@ White's Reality Check
     strategy ``k``'s return minus the benchmark return at ``t``. Statistic
     ``V = max_k sqrt(n) * mean(d_k)``; its null distribution is approximated with the
     stationary bootstrap, recentring every strategy at its sample mean (the least
-    favourable configuration — conservative when many strategies are poor).
+    favourable configuration; conservative when many strategies are poor).
 
 Hansen's Superior Predictive Ability (consistent version, SPA_c)
     Hansen, P. R. (2005). "A Test for Superior Predictive Ability." JBES 23(4).
@@ -158,9 +158,9 @@ def adjust_pvalues(
 ) -> np.ndarray:
     """Multiple-testing adjusted p-values.
 
-    * ``bonferroni`` — family-wise error rate, any dependence.
-    * ``holm`` — step-down FWER control (Holm, 1979); uniformly more powerful than Bonferroni.
-    * ``bh`` — Benjamini-Hochberg (1995) false discovery rate under independence or positive
+    * ``bonferroni``: family-wise error rate, any dependence.
+    * ``holm``: step-down FWER control (Holm, 1979); uniformly more powerful than Bonferroni.
+    * ``bh``: Benjamini-Hochberg (1995) false discovery rate under independence or positive
       dependence.
     """
     p = np.asarray(p_values, dtype=float)

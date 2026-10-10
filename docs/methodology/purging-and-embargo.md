@@ -30,7 +30,7 @@ UTC, independent of the index's datetime resolution and timezone. Input validati
 - an `event_end` Series must be indexed exactly like the data (same timestamps, same order);
 - start and end must both be timezone-aware or both naive (aware values in different
   timezones are compared in UTC);
-- observation start times must be non-decreasing — unsorted data is rejected rather than
+- observation start times must be non-decreasing; unsorted data is rejected rather than
   silently mis-purged;
 - every end is ≥ its start.
 
@@ -41,7 +41,7 @@ This removes observations both before the test block (labels extending into it) 
 inside the span after it.
 
 **Embargo** (`apply_embargo`, `embargo_size`). `h = ceil(embargo · n)` for a fraction,
-`h` bars for an integer, or — with event-time labels only — a duration such as `"5D"` /
+`h` bars for an integer, or (with event-time labels only) a duration such as `"5D"` /
 `pd.Timedelta(days=5)`: training observations whose start lies in
 `(span_end, span_end + duration]` are removed. Following López de Prado (2018, snippet 7.3), the embargo window
 starts **after the end of the test block's label span**: with `T` the latest label end in

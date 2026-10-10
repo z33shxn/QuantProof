@@ -3,10 +3,10 @@
 These checks look at *values*, complementing the static analyzer (which looks at
 code) and the perturbation test (which looks at behaviour).
 
-* ``QP-LEAK-001`` — a feature is (almost) identical to the target: |corr| ≥ threshold.
-* ``QP-LEAK-002`` — a feature at ``t`` is (almost) identical to a *future* asset return
+* ``QP-LEAK-001``: a feature is (almost) identical to the target: |corr| ≥ threshold.
+* ``QP-LEAK-002``: a feature at ``t`` is (almost) identical to a *future* asset return
   ``r[t+h]`` for some ``1 <= h <= max_lead``.
-* ``QP-LEAK-003`` — signal direction predicts the next return with implausible accuracy
+* ``QP-LEAK-003``: signal direction predicts the next return with implausible accuracy
   (hit rate above ``max_hit_rate`` with a one-sided binomial p-value below 1e-6).
 
 Thresholds are deliberately extreme: they target unambiguous leakage, not genuinely

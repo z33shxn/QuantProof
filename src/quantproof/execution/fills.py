@@ -10,14 +10,14 @@ Timing convention
 ``targets[t]`` is the target weight decided with information up to and including
 the close of bar ``t``.
 
-* :class:`MarketOnClose` (``lag=L``) — the trade fills at the close of bar ``t+L``.
+* :class:`MarketOnClose` (``lag=L``): the trade fills at the close of bar ``t+L``.
   ``L=0`` means filling at the very close that produced the signal (same-bar
   execution). Held weight over bar ``s`` (close[s-1] → close[s]) is
   ``targets[s-1-L]``.
-* :class:`NextOpen` (``lag=L>=1``) — fills at the open of bar ``t+L``. The old weight
+* :class:`NextOpen` (``lag=L>=1``): fills at the open of bar ``t+L``. The old weight
   earns the overnight move, the new weight the open→close move:
   ``r_s = (1 + w_old * (open_s/close_{s-1} - 1)) * (1 + w_new * (close_s/open_s - 1)) - 1``.
-* :class:`LimitOrder` — a limit order at ``close_t * (1 ∓ offset)`` is live during bar
+* :class:`LimitOrder`: a limit order at ``close_t * (1 ∓ offset)`` is live during bar
   ``t+1``; it fills if the bar's low (buy) / high (sell) touches the limit, at the
   limit price (or the open if better). Unfilled orders are cancelled. Fills on touch
   are optimistic (no queue position, no partial fills).

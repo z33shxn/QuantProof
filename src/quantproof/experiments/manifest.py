@@ -7,11 +7,11 @@ assumptions, seed), and where (Python, platform, package versions, Git commit).
 ``fingerprints`` holds separate SHA-256 hashes so a difference between two runs can
 be attributed:
 
-* ``code`` — strategy file (or source) hash, strategy name and Git commit/dirty flag;
-* ``data`` — data file and content hashes and schema;
-* ``config`` — the full audit configuration (including the seed);
-* ``parameters`` — strategy defaults and grid;
-* ``environment`` — Python, platform and dependency versions.
+* ``code``: strategy file (or source) hash, strategy name and Git commit/dirty flag;
+* ``data``: data file and content hashes and schema;
+* ``config``: the full audit configuration (including the seed);
+* ``parameters``: strategy defaults and grid;
+* ``environment``: Python, platform and dependency versions.
 
 ``content_hash`` covers every field *except* the run timestamp, so two runs with
 the same code, data, configuration, environment and seed produce the same

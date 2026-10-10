@@ -81,7 +81,7 @@ app = typer.Typer(
     name="quantproof",
     cls=_QuantProofGroup,
     help=(
-        "QuantProof — audit a backtest for look-ahead bias, leakage, unrealistic execution "
+        "QuantProof: audit a backtest for look-ahead bias, leakage, unrealistic execution "
         "and selection bias.\n\n"
         "Exit codes: 0 pass, 1 warn, 2 fail, 3 invalid input, 4 internal error."
     ),

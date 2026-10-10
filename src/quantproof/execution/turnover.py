@@ -2,8 +2,8 @@
 
 Definitions (weights as fractions of equity)
 --------------------------------------------
-* gross turnover at bar t: ``sum_i |Δw_i,t|`` — total traded notional / equity.
-* net turnover at bar t:   ``|sum_i Δw_i,t|`` — change in net exposure; equals gross
+* gross turnover at bar t: ``sum_i |Δw_i,t|``, total traded notional / equity.
+* net turnover at bar t:   ``|sum_i Δw_i,t|``, the change in net exposure; equals gross
   turnover for a single instrument.
 * average turnover: mean gross turnover per bar.
 * annualized turnover: average × periods_per_year (e.g. 12 = portfolio traded 12×

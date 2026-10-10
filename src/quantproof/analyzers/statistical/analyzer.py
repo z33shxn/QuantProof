@@ -233,7 +233,7 @@ def analyze_statistics(
                 title="Suspiciously strong backtest statistics",
                 message=(
                     "; ".join(f"{k}: annualized Sharpe {v:.2f}" for k, v in implausible)
-                    + f" — above the plausibility threshold {cfg.max_plausible_sharpe:.1f}."
+                    + f", above the plausibility threshold {cfg.max_plausible_sharpe:.1f}."
                 ),
                 evidence={
                     "sharpe": summary.sharpe_annualized,

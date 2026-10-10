@@ -31,7 +31,7 @@ relative to the [bad workflow](bad-research-workflow.md):
 
 - Static analysis: no WARN or FAIL. Runtime causality: no decision changed.
 - Execution: the declared assumptions are at least as conservative as the audit's.
-- **WARN**, primary reason **QP-VAL-001 — weak out-of-sample evidence**: picking the
+- **WARN**, primary reason **QP-VAL-001 (weak out-of-sample evidence)**: picking the
   best configuration on each training window and testing it on the next gives a negative
   out-of-sample Sharpe, with only 1 of 5 folds positive.
 - Supporting evidence: PBO ≈ 0.8 (the in-sample winner usually lands in the bottom half
@@ -51,6 +51,6 @@ the strategy better, it made the claim about it accurate.
 - [ ] Every variant tried is declared (`PARAM_GRID`, `statistics.trials` or
       `trial_returns`); run the **strict** profile before a final decision.
 - [ ] The decision is based on out-of-sample evidence (walk-forward, CPCV paths), DSR and
-      PBO — not on the in-sample headline.
+      PBO, not on the in-sample headline.
 - [ ] Data-quality findings are resolved, not suppressed.
 - [ ] The report (with its manifest and fingerprints) is stored with the research.

@@ -31,7 +31,7 @@ class ExecutionTimingReport:
 def analyze_execution_timing(signal_times: Any, execution_times: Any) -> ExecutionTimingReport:
     """Compare signal and execution timestamps trade by trade.
 
-    * ``execution == signal`` → instantaneous execution (zero latency) — usually optimistic.
+    * ``execution == signal`` → instantaneous execution (zero latency), usually optimistic.
     * ``execution < signal`` → impossible: the trade happens before its signal exists,
       i.e. look-ahead.
     """

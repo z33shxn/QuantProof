@@ -40,7 +40,7 @@ def render_markdown(result: AuditResult, *, include_passes: bool = True) -> str:
     ov = result.sections.get("overview", {})
     s = result.summary
     out = [
-        f"# QuantProof audit — {_BADGE[result.status]}",
+        f"# QuantProof audit: {_BADGE[result.status]}",
         "",
         f"**Strategy:** `{ov.get('strategy', 'n/a')}` · **Observations:** {ov.get('n_observations', 'n/a')}"
         + (
@@ -110,7 +110,7 @@ def render_markdown(result: AuditResult, *, include_passes: bool = True) -> str:
     if issues:
         out += ["## Issue details", ""]
         for f in issues:
-            usage = f" — **{f.usage.label}**" if f.usage is not None else ""
+            usage = f" (**{f.usage.label}**)" if f.usage is not None else ""
             out += [f"### {_BADGE[f.severity]} `{f.id}` {_esc(f.title)}{usage}", ""]
             out += [f"- **What happened:** {_esc(f.message)}"]
             for label, text in (

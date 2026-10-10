@@ -12,7 +12,7 @@ on the same MultiIndex.
 Optional module-level metadata (plain literals, so the static analyzer can read them):
 
 ``PARAMETERS``  default keyword arguments for ``generate_signals``.
-``PARAM_GRID``  ``{name: [values, ...]}`` — the variants that were (or would be) searched.
+``PARAM_GRID``  ``{name: [values, ...]}``: the variants that were (or would be) searched.
                 QuantProof evaluates the grid to measure selection bias (DSR, PBO,
                 Reality Check, parameter-surface stability).
 ``EXECUTION``   the strategy's *own* execution assumptions, e.g.

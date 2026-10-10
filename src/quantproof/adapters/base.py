@@ -1,7 +1,7 @@
 """Generic adapter interface.
 
 QuantProof's core never imports a backtesting engine. Engines are integrated by
-adapters that convert their native outputs into :class:`ResearchArtifacts` — a
+adapters that convert their native outputs into :class:`ResearchArtifacts`, a
 plain container of pandas objects. A future VectorBT/Backtrader/LEAN/Nautilus/Qlib
 adapter only needs to implement :class:`Adapter.load`.
 """

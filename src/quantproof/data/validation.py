@@ -594,7 +594,7 @@ def _merge_by_rule(per_symbol: dict[str, list[Finding]]) -> list[Finding]:
         shown = sorted(affected)[:5]
         more = len(affected) - len(shown)
         msg = (
-            f"{len(affected)} of {len(items)} symbol(s) affected — "
+            f"{len(affected)} of {len(items)} symbol(s) affected: "
             + "; ".join(f"{s}: {affected[s].message}" for s in shown)
             + (f"; … and {more} more" if more > 0 else "")
         )

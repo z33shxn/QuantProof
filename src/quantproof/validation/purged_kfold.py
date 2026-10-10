@@ -9,9 +9,9 @@ Sample-time vs event-time
 Folds are always contiguous blocks of *observations* (sample-time splitting). What
 differs is how label overlap is measured for purging:
 
-* sample-time labels — ``label_horizon=h``: the label at bar ``i`` uses data through bar
+* sample-time labels, ``label_horizon=h``: the label at bar ``i`` uses data through bar
   ``i + h``, interval ``[i, i + h]`` in positions;
-* event-time labels — ``event_end`` (alias ``t1``): a Series mapping each observation's
+* event-time labels, ``event_end`` (alias ``t1``): a Series mapping each observation's
   timestamp to the time its label is resolved (e.g. a barrier touch), optionally with
   ``event_start`` when the label starts later than the observation. Intervals are compared
   in time, so variable-length labels are purged correctly.
@@ -19,7 +19,7 @@ differs is how label overlap is measured for purging:
 Boundary convention
 -------------------
 A training observation is purged when its interval ``[s_j, e_j]`` intersects the test
-block's span ``[s_a, max e_{a..b}]`` — both ends **inclusive** (a label that ends exactly
+block's span ``[s_a, max e_{a..b}]``, with both ends **inclusive** (a label that ends exactly
 when the test span starts is purged). The embargo is applied after purging (see
 :mod:`quantproof.validation.embargo`).
 """

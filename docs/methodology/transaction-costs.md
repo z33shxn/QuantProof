@@ -39,7 +39,7 @@ All return the cost per bar **as a fraction of equity**, so `net = gross − cos
 | `SquareRootImpact(Y)` | `|Δw| · Y · σ_t · √(shares/ADV)` |
 
 `σ_t` is a trailing return volatility lagged one bar and `ADV` a trailing average volume
-lagged one bar (the first bar has no history and is treated as zero participation) — cost
+lagged one bar (the first bar has no history and is treated as zero participation), so cost
 estimates never use future data. `roll_spread(prices)` estimates an effective spread
 (Roll 1984) from negative serial covariance of price changes.
 
@@ -103,7 +103,7 @@ The report adds:
 
 - a lag-sensitivity table (lags 0, 1, 2, 5, next open);
 - **cost attribution**: gross return, each cost component (commission, spread, slippage,
-  impact, taxes) and net return, as sums of per-bar returns and annualized means — the
+  impact, taxes) and net return, as sums of per-bar returns and annualized means. The
   components add up exactly to gross − net;
 - a **cost-multiplier table** (0×, 0.5×, 1×, 1.5×, 2×, 3× the whole audit cost model by
   default; `execution.cost_multipliers`). Impact is scaled as a cost *level*, not by

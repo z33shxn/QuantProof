@@ -23,7 +23,7 @@ cross-trial Sharpe variance *V* (`expected_max_sharpe`). All quantities are per-
 expected maximum of *N* zero-skill trials. DSR is the probability (under the PSR
 approximation) that the observed Sharpe exceeds that hurdle.
 
-**Expected maximum — approximation vs exact.** `expected_max_sharpe(N, V,
+**Expected maximum: approximation vs exact.** `expected_max_sharpe(N, V,
 method="approximation")` is the paper's closed form; `method="exact"` integrates
 `E[max Z_i] = ∫ x·N·φ(x)·Φ(x)^(N−1) dx` numerically. The audit and the CLI use the exact
 value and report `expected_max_method`. Relative error of the closed form (tested against
@@ -39,10 +39,10 @@ value and report `expected_max_method`. Relative error of the closed form (teste
 parameter set, feature set, universe, rule change or model that was backtested,
 **including ones that were discarded**. The audit reports, in `statistics.trials`:
 
-- `declared` / `used_for_dsr` — the count used;
-- `source` — `statistics.trials (declared in config)`, `PARAM_GRID size`,
+- `declared` / `used_for_dsr`: the count used;
+- `source`: `statistics.trials (declared in config)`, `PARAM_GRID size`,
   `columns of trial_returns`, or `not declared (assumed 1)`;
-- `effective_estimate` — when trial returns are available, the Li & Ji (2005)
+- `effective_estimate`: when trial returns are available, the Li & Ji (2005)
   eigenvalue estimate of the number of effectively independent trials. It is reported
   for context; the DSR still uses the declared count (correlated trials make the declared
   count conservative). The estimate credits fractional eigenvalue parts, so it is a rough
@@ -54,20 +54,20 @@ entered. QuantProof cannot see trials that were never declared.
 
 Choice of *V*, recorded in the result as `variance_source`:
 
-1. `explicit` — passed by the user;
-2. `trial_sharpes` — sample variance of the per-period Sharpe ratios of all trials (as in
+1. `explicit`: passed by the user;
+2. `trial_sharpes`: sample variance of the per-period Sharpe ratios of all trials (as in
    the paper). The audit uses this whenever a `PARAM_GRID` or `trial_returns` is supplied;
-3. `null_sampling_variance_1/(T-1)` — otherwise, the approximate sampling variance of a
+3. `null_sampling_variance_1/(T-1)`: otherwise, the approximate sampling variance of a
    Sharpe estimate under zero true Sharpe and normal returns.
 
 `N` comes from `statistics.trials`, else the size of `PARAM_GRID` (the full grid, even
-when the audit evaluates a sub-sample), else 1 — in which case QP-STAT-005 reminds you
+when the audit evaluates a sub-sample), else 1, in which case QP-STAT-005 reminds you
 that DSR equals PSR and understates selection bias.
 
 ## Assumptions
 
 - Trials are independent. Correlated variants (neighbouring parameters) make the raw count
-  conservative — the hurdle is too high. The paper suggests clustering to estimate the
+  conservative: the hurdle is too high. The paper suggests clustering to estimate the
   effective number of trials; QuantProof uses the count you declare and reports the
   Li & Ji estimate alongside it.
 - The PSR assumptions apply.

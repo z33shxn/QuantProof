@@ -54,7 +54,7 @@ class MyEngineAdapter:
 Keep engine imports inside the adapter module so the core stays engine-independent. State
 in `metadata` whether returns are gross or net of costs.
 
-## `GenericResultsAdapter` — any engine that can export a table
+## `GenericResultsAdapter`: any engine that can export a table
 
 Most engines can export a returns or equity series and a trade ledger. The generic adapter
 maps those exports with explicit column names; it never imports an engine.
@@ -99,7 +99,7 @@ instantaneous.
 - Returns: the portfolio's per-period returns (e.g. `Portfolio.returns()`) or its value
   series (`Portfolio.value()`), exported as a Series indexed by timestamp.
 - Variants: when you run a parameter sweep, export the returns of *every* column of the
-  portfolio as `trial_returns` — this is what makes PBO/DSR meaningful.
+  portfolio as `trial_returns`. This is what makes PBO/DSR meaningful.
 - Ledger: VectorBT's trade records contain entry/exit *fill* timestamps; signal times must
   come from your own signal arrays (the bar at which the entry signal was `True`).
 - State `returns_are="net"` only if fees/slippage were configured in the portfolio.

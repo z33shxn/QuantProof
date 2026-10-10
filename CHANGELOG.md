@@ -6,7 +6,7 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.1.0] — 2026-10-04
+## [0.1.0] - 2026-10-04
 
 First public release. The API may still change before 1.0. Not published to PyPI; install
 from the `v0.1.0` tag on GitHub.
@@ -49,7 +49,7 @@ Limitations are documented in `docs/methodology/limitations.md` and `SECURITY.md
 The entries below record how 0.1.0 was built: an initial implementation followed by a
 second, deeper hardening review before release.
 
-### Hardening review — added
+### Hardening review: added
 
 - Multi-asset panels: long-format data with a symbol column, per-symbol data validation
   (QP-DATA-015 for unsynchronised symbols), panel-aware causality perturbation, portfolio
@@ -82,14 +82,14 @@ second, deeper hardening review before release.
   multi-asset and analysis-level documentation, runnable key-object docs (tested),
   benchmarks and work-count complexity tests, ROADMAP, banner.
 
-### Hardening review — changed
+### Hardening review: changed
 
 - `quantproof.audit` is now unambiguously the function; analyzers moved to
   `quantproof.analyzers`, the result model to `quantproof.results`.
 - `ExecutionConfig.cost_grid_bps` replaced by `cost_multipliers`.
 - QP-LEAK-003 is two-sided; QP-EXEC-003 uses the break-even cost multiplier.
 
-### Hardening review — fixed (each with a regression test)
+### Hardening review: fixed (each with a regression test)
 
 - Empty or single-row data passed every data check.
 - Multi-symbol long data was silently treated as one series; MultiIndex input crashed.
@@ -107,7 +107,7 @@ second, deeper hardening review before release.
   shift periods, and reported plot-only centered windows as FAIL.
 
 
-### Initial implementation — added
+### Initial implementation: added
 
 - Audit engine with an explicit verdict (FAIL / WARN / PASS from findings; no score),
   strategy mode and results mode.
@@ -130,7 +130,7 @@ second, deeper hardening review before release.
 - Five deliberately constructed examples with synthetic data, a walkthrough notebook, and
   methodology documentation.
 
-### Initial implementation — fixed during development (each covered by a regression test)
+### Initial implementation: fixed during development (each covered by a regression test)
 
 - Datetime arithmetic assumed nanosecond resolution; pandas may infer microseconds, which
   mis-scaled gap and latency measurements and misclassified daily data as intraday.

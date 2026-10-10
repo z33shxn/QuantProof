@@ -3,10 +3,10 @@
 Given a ``T x N`` matrix of realistic net returns (one column per parameter
 combination), this module runs:
 
-* **Walk-forward selection** — in each fold, choose the configuration with the best
+* **Walk-forward selection**: in each fold, choose the configuration with the best
   training Sharpe and record its *test* returns; the concatenated test returns form a
   genuinely out-of-sample track record of the selection procedure.
-* **CPCV selection paths** — the same procedure over combinatorial purged splits,
+* **CPCV selection paths**: the same procedure over combinatorial purged splits,
   stitched into ``phi`` complete out-of-sample paths.
 * **PBO** via CSCV.
 * **White's Reality Check / Hansen's SPA** over all configurations.
@@ -119,7 +119,7 @@ def oos_evidence(
 
     Returns observation count, concatenated OOS Sharpe, number and share of positive
     folds, fold Sharpe median and dispersion, IS→OOS degradation (OOS / mean IS), and
-    ``weak_reasons`` — human-readable criteria that failed. No score is computed.
+    ``weak_reasons``: human-readable criteria that failed. No score is computed.
     """
     fold_sr = np.array([f["oos_sharpe"] for f in folds], dtype=float)
     finite = fold_sr[np.isfinite(fold_sr)]

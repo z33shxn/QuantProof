@@ -13,7 +13,7 @@ Procedure implemented
 4. ``n*`` = configuration with the best in-sample Sharpe.
 5. ``w = rank_OOS(n*) / (N + 1)`` where rank 1 is the worst OOS Sharpe and ties use
    average ranks; ``lambda = ln(w / (1 - w))``.
-6. ``PBO = share of combinations with lambda <= 0`` — i.e. the in-sample winner
+6. ``PBO = share of combinations with lambda <= 0``, i.e. the in-sample winner
    performs at or below the out-of-sample median. Counting ``lambda == 0`` as
    overfit is a slightly conservative choice for odd ``N``.
 

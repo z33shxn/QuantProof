@@ -3,12 +3,12 @@
 :func:`audit` runs every applicable analyzer and assembles an :class:`AuditResult`.
 Two input modes are supported:
 
-1. **Strategy mode** — a strategy (file path or callable following the contract in
+1. **Strategy mode**: a strategy (file path or callable following the contract in
    :mod:`quantproof.strategy`) plus price data. All checks run: data validation,
    static analysis, future-perturbation causality test, leakage diagnostics,
    execution realism, statistics, selection-bias diagnostics over ``PARAM_GRID``,
    regimes, parameter sensitivity, and the reproducibility manifest.
-2. **Results mode** — pre-computed outputs from any backtester via
+2. **Results mode**: pre-computed outputs from any backtester via
    :class:`~quantproof.adapters.ResearchArtifacts` (or the ``returns=`` shortcut).
    Code-level checks are reported as not run.
 """

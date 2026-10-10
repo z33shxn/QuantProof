@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/images/banner.svg" alt="QuantProof — trust your backtest before you trust your strategy" width="760"></p>
+<p align="center"><img src="docs/images/banner.svg" alt="QuantProof: trust your backtest before you trust your strategy" width="760"></p>
 
 # QuantProof
 
@@ -21,7 +21,7 @@ research code / backtester output  →  QuantProof  →  findings with evidence 
 It looks for look-ahead bias, temporal leakage, random cross-validation on time series,
 full-sample normalisation, target leakage, same-bar execution, missing costs, overfitting
 and undeclared multiple testing, weak out-of-sample evidence, fragile parameter optima,
-regime dependence and irreproducible experiments — in single-asset strategies and
+regime dependence and irreproducible experiments, in single-asset strategies and
 multi-asset portfolios.
 
 > A PASS means the checks that ran found no problem. It does **not** mean a strategy is
@@ -55,7 +55,7 @@ LEAKAGE
     Signal direction matches the next bar's return 100.0% of the time over 652 bars …
 
 WHY THIS VERDICT
-  Primary reason: FAIL QP-CAUSAL-001 — Future perturbation changed historical decisions …
+  Primary reason: FAIL QP-CAUSAL-001 (Future perturbation changed historical decisions): …
   Next steps:
     1. Fix look-ahead first: while signals use future data, every performance, cost and
        overfitting statistic in this report is computed on contaminated returns.
@@ -75,7 +75,7 @@ how to investigate, the statistics with their inputs, and a reproducibility foot
 
 ![QuantProof HTML report](docs/images/report-lookahead.png)
 
-A complete before/after story — a flawed first draft, the audit, the fix, the re-run —
+A complete before/after story (a flawed first draft, the audit, the fix, the re-run)
 is in [docs/examples/bad-research-workflow.md](docs/examples/bad-research-workflow.md)
 and [good-research-workflow.md](docs/examples/good-research-workflow.md)
 (`python examples/proof_of_value/run.py`).
@@ -197,7 +197,7 @@ analysis, and results mode (`returns=`, `trial_returns=`, `ResearchArtifacts`,
 | Leakage (values) | `QP-LEAK-001…003` | features replicating the target or future returns; implausible (two-sided) directional accuracy |
 | Execution realism | `QP-EXEC-001…006` | naive vs declared vs realistic fills, lag sensitivity, cost attribution (gross → commission, spread, slippage, impact, taxes → net), cost multipliers 0×–3×, break-even, turnover, trade timestamps, untestable execution styles |
 | Statistics | `QP-STAT-001…007` | sample size, PSR, DSR (exact expected maximum, trial provenance, effective-trials estimate), implausible Sharpe, undeclared trials, non-normality, serial correlation |
-| Validation / selection | `QP-VAL-001…004` | out-of-sample evidence (positive folds, dispersion, IS→OOS ratio — no composite score), PBO (CSCV), CPCV paths, White Reality Check / Hansen SPA |
+| Validation / selection | `QP-VAL-001…004` | out-of-sample evidence (positive folds, dispersion, IS→OOS ratio; no composite score), PBO (CSCV), CPCV paths, White Reality Check / Hansen SPA |
 | Regimes, sensitivity | `QP-REGIME-001`, `QP-SENS-001…002` | volatility / drawdown / bull-bear regimes; plateau vs fragile optimum, IS/OOS rank persistence |
 | Reproducibility | manifest | separate code, data, config, parameter and environment fingerprints; Git commit; seed; lineage |
 
@@ -267,7 +267,7 @@ ledger by column name. QuantProof ships **no** VectorBT, Backtrader or LEAN adap
 | [`leakage_strategy`](examples/leakage_strategy/strategy.py) | global scaler, shuffled split, forward return in features | **FAIL**: QP001, QP006, QP012, QP-CAUSAL-001; WARN QP004 |
 | [`overfit_strategy`](examples/overfit_strategy/strategy.py) | best of 240 rules on a random walk | **WARN**: QP013, DSR 0.18, PBO 0.60, walk-forward OOS Sharpe −0.60, CPCV, SPA, fragile optimum |
 | [`unrealistic_execution`](examples/unrealistic_execution/strategy.py) | same-bar fills, zero costs | **FAIL**: QP-EXEC-001 (Sharpe 1.64 → 0.10 under audit assumptions); WARN QP009, QP011, cost fragility |
-| [`cross_sectional_momentum`](examples/cross_sectional_momentum/strategy.py) | nothing structural; 36 variants declared | **WARN**: weak out-of-sample evidence, PBO ≈ 0.8, DSR ≈ 0.5 — the honest result for a noisy edge |
+| [`cross_sectional_momentum`](examples/cross_sectional_momentum/strategy.py) | nothing structural; 36 variants declared | **WARN**: weak out-of-sample evidence, PBO ≈ 0.8, DSR ≈ 0.5. The honest result for a noisy edge |
 | [`proof_of_value`](examples/proof_of_value/run.py) | flawed draft → fix | FAIL (QP002, QP-CAUSAL-001, same-bar fills, no costs) → WARN after the fix |
 
 Run them with `python examples/run_examples.py`; details in
@@ -302,4 +302,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for adding rules, adapters and cost provi
 
 ## License
 
-MIT — see [LICENSE](LICENSE). All bundled data is synthetic.
+MIT. See [LICENSE](LICENSE). All bundled data is synthetic.

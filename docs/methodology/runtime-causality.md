@@ -27,7 +27,7 @@ at time t must not depend on data after t.** That property can be tested directl
    decisions, the first changed decision time and column, the original and perturbed
    values there, and max |Δ|. The finding message quotes one example, e.g. "data from
    2020-06-03 onward was perturbed (extreme); the decision at 2020-05-29 [AAA] changed
-   from 0.25 to -0.25 — FORBIDDEN IN LIVE DECISION".
+   from 0.25 to -0.25 (FORBIDDEN IN LIVE DECISION)".
 6. A **control** run perturbs everything after the first row; if outputs never change,
    the strategy ignores its input and the test carries no information (QP-CAUSAL-004).
 
@@ -65,7 +65,7 @@ randomness is seeded.
 
 | Strategy | Trials changed |
 |---|---|
-| trailing moving-average crossover (`examples/clean_strategy`) | 0 of 39 evaluated trials (1 permutation trial skipped: one future timestamp) — PASS |
+| trailing moving-average crossover (`examples/clean_strategy`) | 0 of 39 evaluated trials (1 permutation trial skipped: one future timestamp): PASS |
 | `close.shift(-1)` signal | fails |
 | `rolling(11, center=True)` | fails |
 | `(x - x.mean()) / x.std()` over the full sample | fails |

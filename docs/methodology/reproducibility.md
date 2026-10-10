@@ -30,9 +30,9 @@ created_at: 2026-…Z
 ```
 
 **Data hashing** (`hash_dataframe`) is defined explicitly rather than via pickle/Parquet
-bytes (which embed library versions): column names, a dtype tag, and values — floats as
+bytes (which embed library versions): column names, a dtype tag, and values. Floats are hashed as
 little-endian float64 with NaNs canonicalized, integers as int64, datetimes as UTC
-nanoseconds (independent of resolution and display timezone), other values as UTF-8
+nanoseconds (independent of resolution and display timezone), and other values as UTF-8
 strings. The index is hashed the same way.
 
 **`content_hash`** covers every manifest field except `created_at`, so identical inputs

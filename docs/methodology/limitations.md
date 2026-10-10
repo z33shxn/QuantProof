@@ -49,8 +49,8 @@ limitations section; this is the summary.
   estimator; with fat tails or strong serial correlation they are approximations
   (the Lo-adjusted Sharpe is reported alongside).
 - DSR, PBO, CPCV and the Reality Check/SPA can only account for the variants you declare
-  (`PARAM_GRID`, `statistics.trials`, `trial_returns`). Undeclared exploration — other
-  datasets, features, ideas dropped early — is invisible. Declaring `trials=5000` makes the
+  (`PARAM_GRID`, `statistics.trials`, `trial_returns`). Undeclared exploration (other
+  datasets, features, ideas dropped early) is invisible. Declaring `trials=5000` makes the
   hurdle consistent with 5000 independent tries; it does not make the count honest.
 - The effective-number-of-trials estimate (Li & Ji, 2005) is a heuristic and is reported
   for context only.

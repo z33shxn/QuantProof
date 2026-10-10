@@ -35,7 +35,7 @@ and reports which method was used.
 
 What "trials" means
 -------------------
-``N`` is the number of strategy variants whose results could have been selected —
+``N`` is the number of strategy variants whose results could have been selected,
 every parameter set, feature set, universe or rule change that was backtested,
 including ones that were discarded. QuantProof cannot observe trials that were not
 declared: entering ``trials=5000`` makes the hurdle *consistent with* 5000 independent

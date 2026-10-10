@@ -15,7 +15,7 @@ with one row per combination:
 - **plateau ratio** = median(neighbour metric) / best metric (when best > 0);
 - **spike z** = (best − mean of neighbours) / std of the surface;
 - classification: robust (ratio ≥ 0.7), moderate, fragile (< 0.4), undetermined (best ≤ 0
-  or no neighbours) — thresholds in `SensitivityConfig`;
+  or no neighbours); thresholds in `SensitivityConfig`;
 - local maxima, share of the grid ≥ half the best value;
 - with `oos_metric`: Spearman rank correlation of IS vs OOS across the grid, OOS value at
   the IS optimum, and whether the OOS optimum is the IS optimum.
@@ -32,7 +32,7 @@ fast\slow      40     50     60     70
 20           0.20   0.20   0.20   0.20
 ```
 
-(an isolated spike — classified fragile.)
+(An isolated spike, classified fragile.)
 
 ## Limitations
 

@@ -2,13 +2,13 @@
 
 Methods
 -------
-* ``iid``        — Efron's bootstrap. Valid only if observations are independent;
+* ``iid``:        Efron's bootstrap. Valid only if observations are independent;
                    it destroys autocorrelation and volatility clustering and usually
                    understates uncertainty for financial returns.
-* ``circular``   — circular block bootstrap (Politis & Romano, 1992) with fixed block
+* ``circular``:   circular block bootstrap (Politis & Romano, 1992) with fixed block
                    length ``b``; preserves dependence within blocks.
-* ``moving``     — moving block bootstrap (Künsch, 1989), non-circular.
-* ``stationary`` — stationary bootstrap (Politis & Romano, 1994): geometric block
+* ``moving``:     moving block bootstrap (Künsch, 1989), non-circular.
+* ``stationary``: stationary bootstrap (Politis & Romano, 1994): geometric block
                    lengths with mean ``b``; resamples are stationary.
 
 Automatic block length follows Politis & White (2004) with the correction of

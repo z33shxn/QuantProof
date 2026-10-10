@@ -549,7 +549,7 @@ class _TaintAnalysis:
     Sources
         negative ``shift``/``diff``/``pct_change`` (QP001), centered ``rolling`` (QP002),
         ``np.roll`` and ``x[i + k]`` in loops (QP003), full-sample normalization (QP007),
-        two-sided transformations such as ``bfill``/``filtfilt`` (QP015) — including calls
+        two-sided transformations such as ``bfill``/``filtfilt`` (QP015), including calls
         through simple aliases (``lead = pd.Series.shift``).
     Propagation
         assignments to names, string column keys (``df["x"] = ...``), attributes and

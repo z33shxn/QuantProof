@@ -11,7 +11,7 @@ Conventions (used consistently across QuantProof)
 * Skewness and kurtosis are the (biased) sample moments ``m3/m2**1.5`` and
   ``m4/m2**2``; kurtosis is *non-excess* (3 for a normal distribution), matching
   Bailey & López de Prado (2012).
-* Fewer than two finite observations, or zero variance, yield ``nan`` — a Sharpe
+* Fewer than two finite observations, or zero variance, yield ``nan``. A Sharpe
   ratio is undefined without dispersion; QuantProof never reports ``inf``.
 """
 

@@ -2,7 +2,7 @@
 
 DataFrame hashing is defined explicitly (not via pickle or Parquet bytes, which
 embed library versions): for every column, in order, the hash consumes the column
-name, a normalized dtype tag, and the values —
+name, a normalized dtype tag, and the values:
 
 * floats as little-endian float64 with all NaNs canonicalized,
 * integers/booleans as little-endian int64,

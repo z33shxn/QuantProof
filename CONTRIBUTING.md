@@ -81,7 +81,7 @@ tests with small synthetic engine outputs, and document gross vs net returns. Se
 ## Adding or updating a cost provider
 
 Jurisdiction-specific rates live in `src/quantproof/execution/providers/`. Every rate needs
-an effective date range and a source; never overwrite a historical schedule — close it with
+an effective date range and a source; never overwrite a historical schedule. Close it with
 `effective_to` and add a new one. Update `last_reviewed` and the tests with hand-computed
 values.
 

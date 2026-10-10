@@ -214,9 +214,9 @@ def build_narrative(status: Severity, findings: list[Finding]) -> Narrative:
             ],
         )
     top = issues[0]
-    primary = f"{top.severity.value} {top.id} — {top.title}: {_first_sentence(top.message)}"
+    primary = f"{top.severity.value} {top.id} ({top.title}): {_first_sentence(top.message)}"
     evidence = [
-        f"{f.severity.value} {f.id} — {f.title}: {_first_sentence(f.message)}" for f in issues[1:6]
+        f"{f.severity.value} {f.id} ({f.title}): {_first_sentence(f.message)}" for f in issues[1:6]
     ]
     if len(issues) > 6:
         evidence.append(f"… and {len(issues) - 6} more WARN/FAIL finding(s).")

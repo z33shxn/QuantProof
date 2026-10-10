@@ -5,7 +5,7 @@ Runnable examples for the most-used objects: [key-objects.md](key-objects.md).
 Stable, intentionally exported interfaces. Anything not listed here (modules or names
 starting with `_`, analyzer internals such as `ModuleContext`) may change without notice.
 
-## Top level — `import quantproof`
+## Top level: `import quantproof`
 
 | Name | Purpose |
 |---|---|

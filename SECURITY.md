@@ -14,7 +14,7 @@ third-party code, run QuantProof inside an isolated environment (a container or 
 secrets and restricted network, or a CI runner without repository secrets).
 
 Code-free operations do **not** execute user code: static analysis (`quantproof scan`,
-`analyze_file` — it parses source with `ast` without importing it), data validation
+`analyze_file`, which parses source with `ast` without importing it), data validation
 (`quantproof validate`), statistics, and results-mode audits (`returns=`, `artifacts=`).
 
 Other boundaries:

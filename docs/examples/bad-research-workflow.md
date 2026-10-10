@@ -27,7 +27,7 @@ def generate_signals(data, lookback=120, n_side=2):
 The researcher tried 36 combinations of lookback, skip, number of names and rebalance
 frequency, kept the best one, and reports a Sharpe ratio of **2.26**.
 
-## Mistake 1 — a centered window
+## Mistake 1: a centered window
 
 `rolling(5, center=True)` averages the score at *t* with the scores at *t+1* and *t+2*.
 The strategy reads the future.
@@ -43,7 +43,7 @@ simulation still benefits from the leak: the "audited" Sharpe of 1.40 is also
 contaminated. The report's next steps say so explicitly: *fix look-ahead first; every
 other statistic is computed on contaminated returns*.
 
-## Mistake 2 — same-bar fills and free trading
+## Mistake 2: same-bar fills and free trading
 
 `signal_lag: 0` assumes the trade fills at the close that produced the signal, and no
 costs are declared.
@@ -51,12 +51,12 @@ costs are declared.
 - **QP009 WARN** / **QP-EXEC-001 WARN**: same-bar execution.
 - **QP011 WARN** / **QP-EXEC-002 WARN**: no transaction-cost model.
 
-## Mistake 3 — hiding the search
+## Mistake 3: hiding the search
 
 The draft declares no `PARAM_GRID`, so DSR, PBO, CPCV and the Reality Check cannot
 account for the 36 variants tried. QuantProof records the trial count as
 *not declared (assumed 1)* (QP-STAT-005, INFO; WARN in the strict profile). It cannot
-know about variants that are not declared — this is the one mistake an auditor can only
+know about variants that are not declared. This is the one mistake an auditor can only
 point out, not detect.
 
 ## Verdict
